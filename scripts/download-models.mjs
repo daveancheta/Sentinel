@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,8 +16,9 @@ const DEPTH_DEST = join(root, "public", "models", "onnx-community", "depth-anyth
 const TESSERACT_DEST = join(root, "public", "tesseract");
 const OWLVIT_DEST = join(root, "public", "models", "Xenova", "owlvit-base-patch32");
 const WHISPER_ASSETS = ["onnx-community/whisper-tiny", "onnx-community/whisper-base"];
-const WHISPER_FILES = ["config.json", "generation_config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json", "onnx/encoder_model_quantized.onnx", "onnx/decoder_model_merged_quantized.onnx"];
+const WHISPER_FILES = ["config.json", "generation_config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "added_tokens.json", "normalizer.json", "merges.txt", "vocab.json", "onnx/encoder_model_quantized.onnx", "onnx/decoder_model_merged_quantized.onnx"];
 const SPEAKER_MODEL = "Xenova/wavlm-base-plus-sv";
+const MODEL_MANIFEST_PATH = join(root, "public", "model-manifest.json");
 
 const MODELS = [
   {
@@ -165,7 +166,7 @@ async function prepareSignAssets() {
     const src = join(tessDist, file);
     if (existsSync(src) && !existsSync(join(TESSERACT_DEST, file))) copyFileSync(src, join(TESSERACT_DEST, file));
   }
-  for (const file of readdirSync(coreDist).filter((name) => name.startsWith("tesseract-core") && name.endsWith(".js"))) {
+  for (const file of readdirSync(coreDist).filter((name) => name.startsWith("tesseract-core") && (name.endsWith(".js") || name.endsWith(".wasm")))) {
     if (!existsSync(join(TESSERACT_DEST, file))) copyFileSync(join(coreDist, file), join(TESSERACT_DEST, file));
   }
   for (const lang of ["eng", "fil"]) {
@@ -213,6 +214,46 @@ async function prepareVoiceAssets() {
   }
 }
 
+function writeModelManifest() {
+  const asset = (relative) => {
+    const path = join(root, "public", relative);
+    if (!existsSync(path)) throw new Error(`Missing required model asset: ${relative}`);
+    return { url: `/${relative.replaceAll("\\", "/")}`, bytes: statSync(path).size };
+  };
+  const whisper = (model) => WHISPER_FILES.map((file) => asset(`models/${model}/${file}`));
+  const lite = [
+    asset("setup/sample.wav"),
+    asset("models/mediapipe/efficientdet_lite0.tflite"),
+    ...["blazeface.json", "blazeface.bin", "emotion.json", "emotion.bin", "faceres.json", "faceres.bin"].map((f) => asset(`models/human/${f}`)),
+    ...readdirSync(WASM_DEST).map((f) => asset(`mediapipe/wasm/${f}`)),
+    ...ORT_WASM_FILES.map((f) => asset(`ort-wasm/${f}`)),
+    ...readdirSync(TESSERACT_DEST).map((f) => asset(`tesseract/${f}`)),
+    ...whisper("onnx-community/whisper-tiny"),
+  ];
+  const full = [
+    ...[
+      "config.json", "preprocessor_config.json", "onnx/model_quantized.onnx", "onnx/model_quantized.onnx_data",
+    ].filter((f) => existsSync(join(DEPTH_DEST, f))).map((f) => asset(`models/onnx-community/depth-anything-v2-small/${f}`)),
+    ...["config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "onnx/model_quantized.onnx"].map((f) => asset(`models/Xenova/owlvit-base-patch32/${f}`)),
+    ...whisper("onnx-community/whisper-base"),
+    ...["config.json", "preprocessor_config.json", "onnx/model_quantized.onnx"].map((f) => asset(`models/${SPEAKER_MODEL}/${f}`)),
+  ];
+  const packageInfo = (assets) => ({ assets, totalBytes: assets.reduce((sum, item) => sum + item.bytes, 0) });
+  writeFileSync(MODEL_MANIFEST_PATH, JSON.stringify({ version: 1, packages: { lite: packageInfo(lite), full: packageInfo([...lite, ...full]) } }, null, 2));
+  console.log("Wrote public/model-manifest.json");
+}
+
+function writeSelfTestAudio() {
+  const sampleRate = 16000;
+  const sampleCount = sampleRate * 3;
+  const wav = Buffer.alloc(44 + sampleCount * 2);
+  wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVE", 8);
+  wav.write("fmt ", 12); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22); wav.writeUInt32LE(sampleRate, 24); wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(sampleCount * 2, 40);
+  writeFileSync(join(root, "public", "setup", "sample.wav"), wav);
+}
+
 async function main() {
   copyWasm();
   copyOrtWasm();
@@ -225,6 +266,8 @@ async function main() {
   }
   await prepareSignAssets();
   await prepareVoiceAssets();
+  writeSelfTestAudio();
+  writeModelManifest();
   console.log("Model download complete.");
 }
 

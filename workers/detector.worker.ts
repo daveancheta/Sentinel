@@ -14,15 +14,12 @@ async function init(modelName: string) {
     const wasmPath = "/mediapipe/wasm";
     const vision = await FilesetResolver.forVisionTasks(wasmPath);
     const canvas = new OffscreenCanvas(640, 480);
-    detector = await ObjectDetector.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: `/models/mediapipe/${modelName}.tflite`,
-        delegate: "GPU",
-      },
-      canvas,
-      scoreThreshold: 0.4,
-      runningMode: "VIDEO",
-    });
+    const options = {
+      baseOptions: { modelAssetPath: `/models/mediapipe/${modelName}.tflite` },
+      canvas, scoreThreshold: 0.4, runningMode: "VIDEO" as const,
+    };
+    try { detector = await ObjectDetector.createFromOptions(vision, { ...options, baseOptions: { ...options.baseOptions, delegate: "GPU" } }); }
+    catch { detector = await ObjectDetector.createFromOptions(vision, { ...options, baseOptions: { ...options.baseOptions, delegate: "CPU" } }); }
     (self as any).postMessage({ type: "ready" });
   } catch (err) {
     (self as any).postMessage({ type: "error", error: String(err) });

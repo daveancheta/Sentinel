@@ -5,6 +5,20 @@ let worker: Worker | null = null;
 let readyPromise: Promise<void> | null = null;
 let requestId = 0;
 const pending = new Map<number, { resolve: (text: string) => void; reject: (error: Error) => void }>();
+let idleUnloadTimer: number | null = null;
+
+function scheduleIdleUnload() {
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  if (memory == null || memory > 4) return;
+  if (idleUnloadTimer != null) window.clearTimeout(idleUnloadTimer);
+  idleUnloadTimer = window.setTimeout(() => {
+    worker?.terminate(); worker = null; readyPromise = null; idleUnloadTimer = null;
+  }, 2 * 60 * 1000);
+}
+function cancelIdleUnload() {
+  if (idleUnloadTimer != null) window.clearTimeout(idleUnloadTimer);
+  idleUnloadTimer = null;
+}
 
 function getWorker() {
   if (!worker) {
@@ -26,16 +40,18 @@ function getWorker() {
 }
 
 export async function transcribe(audio: Float32Array, model: WhisperModel, language: VoiceLanguage): Promise<string> {
+  cancelIdleUnload();
   const w = getWorker();
   const id = ++requestId;
   const buffer = audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength);
   return new Promise<string>((resolve, reject) => {
     pending.set(id, { resolve, reject });
     w.postMessage({ type: "transcribe", id, audio: buffer, model, language }, [buffer]);
-  });
+  }).finally(scheduleIdleUnload);
 }
 
 export function preloadWhisper(model: WhisperModel): Promise<void> {
+  cancelIdleUnload();
   if (!readyPromise) {
     readyPromise = new Promise((resolve, reject) => {
       const w = getWorker();
@@ -47,7 +63,7 @@ export function preloadWhisper(model: WhisperModel): Promise<void> {
       w.postMessage({ type: "init", model });
     });
   }
-  return readyPromise;
+  return readyPromise.then(() => scheduleIdleUnload());
 }
 
 export async function recordPushToTalk(onStart?: () => void, onStop?: () => void, releaseOnPointer = true): Promise<Float32Array> {

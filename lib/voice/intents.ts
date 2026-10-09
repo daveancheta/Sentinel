@@ -3,7 +3,7 @@ export type VoiceIntent =
   | { type: "seat" } | { type: "findCr" } | { type: "findExit" }
   | { type: "findRoom"; room: string } | { type: "door" } | { type: "readAll" }
   | { type: "whichWay" } | { type: "whatsAhead" } | { type: "guard" }
-  | { type: "stop" } | { type: "repeat" };
+  | { type: "stop" } | { type: "repeat" } | { type: "battery" };
 
 const phrases: Array<[VoiceIntent["type"], string[]]> = [
   ["whosHere", ["sino nandito", "sino ang nandito", "who's here", "who is here"]],
@@ -19,6 +19,7 @@ const phrases: Array<[VoiceIntent["type"], string[]]> = [
   ["guard", ["bantay", "guard mode"]],
   ["stop", ["tigil", "stop", "ihinto"]],
   ["repeat", ["ulitin", "repeat"]],
+  ["battery", ["ilang porsyento ang baterya", "battery percentage", "what is the battery percentage", "battery level"]],
 ];
 
 const normalize = (text: string) => text.toLocaleLowerCase().normalize("NFD")

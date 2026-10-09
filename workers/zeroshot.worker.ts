@@ -13,7 +13,7 @@ async function init() {
     try {
       detector = await pipeline("zero-shot-object-detection", "Xenova/owlvit-base-patch32", {
         device: useWebGPU ? "webgpu" : "wasm",
-        dtype: useWebGPU ? "fp16" : "q8",
+        dtype: "q8",
       });
     } catch (gpuError) {
       if (!useWebGPU) throw gpuError;

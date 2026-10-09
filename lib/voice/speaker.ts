@@ -1,17 +1,26 @@
 let worker: Worker | null = null;
 let sequence = 0;
+let idleUnloadTimer: number | null = null;
 const pending = new Map<number, { resolve: (v: Float32Array) => void; reject: (e: Error) => void }>();
+function scheduleIdleUnload() {
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  if (memory == null || memory > 4) return;
+  if (idleUnloadTimer != null) window.clearTimeout(idleUnloadTimer);
+  idleUnloadTimer = window.setTimeout(() => { worker?.terminate(); worker = null; idleUnloadTimer = null; }, 120_000);
+}
 function getWorker() {
   if (!worker) {
     worker = new Worker(new URL("../../workers/speaker.worker.ts", import.meta.url), { type: "module" });
     worker.addEventListener("message", (event: MessageEvent) => {
       const p = pending.get(event.data.id); if (!p) return; pending.delete(event.data.id);
       if (event.data.type === "error") p.reject(new Error(event.data.error)); else p.resolve(new Float32Array(event.data.embedding));
+      scheduleIdleUnload();
     });
   }
   return worker;
 }
 export function makeVoiceEmbedding(audio: Float32Array): Promise<Float32Array> {
+  if (idleUnloadTimer != null) { window.clearTimeout(idleUnloadTimer); idleUnloadTimer = null; }
   const id = ++sequence, buffer = audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength);
   return new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); getWorker().postMessage({ type: "embed", id, audio: buffer }, [buffer]); });
 }

@@ -23,6 +23,7 @@ interface WalkingOptions {
 let active = false;
 let lastNonDanger = 0;
 let frameCounter = 0;
+let useDepthModel = true;
 
 async function loadOptions(): Promise<WalkingOptions> {
   return {
@@ -45,19 +46,20 @@ export async function startWalkingMode(): Promise<void> {
   const lang = getCurrentLanguage();
   const s = getStrings(lang);
   const opts = await loadOptions();
+  useDepthModel = await getSetting<string>("modelPackage", "lite") === "full";
 
   initVehicleTracker();
   resetHeadLevel();
   resetDropoff();
 
-  await Promise.all([initDetector("efficientdet_lite0"), initDepth()]);
+  await Promise.all([initDetector("efficientdet_lite0"), ...(useDepthModel ? [initDepth()] : [])]);
 
   setDetectionCallback((detections, frameTime) => {
     if (!active) return;
     processVehicleDetections(detections, frameTime);
   });
 
-  setDepthCallback((frame) => {
+  setDepthCallback(useDepthModel ? (frame) => {
     if (!active) return;
     const now = frame.frameTime;
     frameCounter++;
@@ -100,19 +102,22 @@ export async function startWalkingMode(): Promise<void> {
       );
       announce(summary, "INFO");
     }
-  });
+  } : null);
 
   await startCamera({ fps: 12, facingMode: "environment" }, (frame) => {
     if (!active) return;
-    const canvas = new OffscreenCanvas(frame.bitmap.width, frame.bitmap.height);
-    const ctx = canvas.getContext("2d");
-    ctx?.drawImage(frame.bitmap, 0, 0);
-    const depthBitmap = canvas.transferToImageBitmap();
+    let depthBitmap: ImageBitmap | null = null;
+    if (useDepthModel) {
+      const canvas = new OffscreenCanvas(frame.bitmap.width, frame.bitmap.height);
+      const ctx = canvas.getContext("2d");
+      ctx?.drawImage(frame.bitmap, 0, 0);
+      depthBitmap = canvas.transferToImageBitmap();
+    }
     sendFrame(frame.bitmap, frame.timestamp);
-    sendDepthFrame(depthBitmap, frame.timestamp);
+    if (depthBitmap) sendDepthFrame(depthBitmap, frame.timestamp);
   });
 
-  announce(s.modes.walkingOn, "INFO");
+  announce(useDepthModel ? s.modes.walkingOn : `${s.modes.walkingOn}. ${lang === "fil" ? "Babala sa sasakyan lang; i-download ang Full package para sa depth at hagdan." : "Vehicle warnings only; download Full for depth and step alerts."}`, "INFO");
 }
 
 export function stopWalkingMode(): void {

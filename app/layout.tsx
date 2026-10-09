@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AnnouncerRegion } from "./announcer-region";
 import { ShakeProvider } from "./shake-provider";
+import { SetupGate } from "./setup-gate";
 
 export const metadata: Metadata = {
   title: "Kita",
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="fil">
       <body className="bg-kita-bg text-kita-text min-h-screen">
         <ShakeProvider>
-          {children}
+          <SetupGate>{children}</SetupGate>
           <AnnouncerRegion lang="fil" />
         </ShakeProvider>
       </body>

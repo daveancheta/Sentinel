@@ -10,7 +10,7 @@ const modelCache = [
       sameOrigin && pathname.startsWith("/models/"),
     handler: new CacheFirst({
       cacheName: "kita-models",
-      plugins: [new ExpirationPlugin({ maxEntries: 30, maxAgeSeconds: 365 * 24 * 60 * 60 })],
+      plugins: [new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 365 * 24 * 60 * 60 })],
     }),
   },
   {

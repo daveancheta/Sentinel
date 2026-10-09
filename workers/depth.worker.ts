@@ -56,14 +56,12 @@ async function init() {
     const useWebGPU =
       typeof navigator !== "undefined" && "gpu" in navigator;
 
-    estimator = await pipeline(
-      "depth-estimation",
-      "onnx-community/depth-anything-v2-small",
-      {
-        device: useWebGPU ? "webgpu" : "wasm",
-        dtype: useWebGPU ? "fp16" : "q8",
-      },
-    );
+    try {
+      estimator = await pipeline("depth-estimation", "onnx-community/depth-anything-v2-small", { device: useWebGPU ? "webgpu" : "wasm", dtype: "q8" });
+    } catch (gpuError) {
+      if (!useWebGPU) throw gpuError;
+      estimator = await pipeline("depth-estimation", "onnx-community/depth-anything-v2-small", { device: "wasm", dtype: "q8" });
+    }
     (self as any).postMessage({ type: "ready" });
   } catch (err) {
     (self as any).postMessage({ type: "error", error: String(err) });

@@ -22,6 +22,7 @@ import { startCamera, stopCamera } from "../../lib/camera";
 import { initFaces, setFacesCallback, sendFacesFrame, stopFaces } from "../../lib/faces-bridge";
 import { initDepth, sendDepthFrame, setDepthCallback, stopDepth } from "../../lib/depth-bridge";
 import type { WhisperModel, VoiceLanguage } from "../../lib/voice/transcriber";
+import { exportEncryptedBackup, importEncryptedBackup } from "../../lib/setup/backup";
 
 export default function SettingsPage() {
   const [lang, setLang] = useState<Language>("fil");
@@ -54,6 +55,14 @@ export default function SettingsPage() {
   const [whisperModel, setWhisperModel] = useState<WhisperModel>("onnx-community/whisper-tiny");
   const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>("auto");
   const [voiceIdEnabled, setVoiceIdEnabled] = useState(false);
+  const [batterySaver, setBatterySaver] = useState(false);
+  const [storageSummary, setStorageSummary] = useState("");
+  const [backupPassphrase, setBackupPassphrase] = useState("");
+  const [importPassphrase, setImportPassphrase] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importStrategy, setImportStrategy] = useState<"merge" | "replace">("merge");
+  const [backupStatus, setBackupStatus] = useState("");
+  const [modelPackage, setModelPackage] = useState<"lite" | "full">("lite");
 
   const s = getStrings(lang);
 
@@ -81,8 +90,13 @@ export default function SettingsPage() {
       setWhisperModel(await getSetting<WhisperModel>("whisperModel", "onnx-community/whisper-tiny"));
       setVoiceLanguage(await getSetting<VoiceLanguage>("voiceLanguage", "auto"));
       setVoiceIdEnabled(await getSetting<boolean>("voiceIdEnabled", false));
+      setBatterySaver(await getSetting<boolean>("batterySaver", false));
+      setModelPackage(await getSetting<"lite" | "full">("modelPackage", "lite"));
       const uri = await getSetting<string | null>("voiceUri", null);
       setSelectedVoice(uri ?? "");
+      await navigator.storage?.persist?.();
+      const storage = await navigator.storage?.estimate?.();
+      if (storage) setStorageSummary(`${(storage.usage ?? 0) / 1024 / 1024 | 0} MB ${l === "fil" ? "ginamit sa" : "used of"} ${((storage.quota ?? 0) / 1024 / 1024 / 1024).toFixed(1)} GB`);
       if ("speechSynthesis" in window) {
         window.speechSynthesis.onvoiceschanged = () => setVoices(getVoices());
       }
@@ -120,6 +134,25 @@ export default function SettingsPage() {
     setShowDelete(false);
     vibrate("danger");
     announce(s.events.dataDeleted, "WARNING");
+  };
+
+  const saveBackup = async () => {
+    try {
+      const blob = await exportEncryptedBackup(backupPassphrase);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a"); link.href = url; link.download = "kita-backup.kita"; link.click(); URL.revokeObjectURL(url);
+      setBackupStatus(lang === "fil" ? "Na-export ang encrypted backup." : "Encrypted backup exported.");
+      announce(lang === "fil" ? "Naka-save na ang backup file." : "Backup file downloaded.", "INFO");
+    } catch (error) { setBackupStatus(error instanceof Error ? error.message : String(error)); }
+  };
+
+  const restoreBackup = async () => {
+    if (!importFile) return;
+    try {
+      await importEncryptedBackup(importFile, importPassphrase, importStrategy);
+      setBackupStatus(lang === "fil" ? "Naibalik na ang backup. I-reload ang app para i-refresh ang settings." : "Backup restored. Reload the app to refresh settings.");
+      announce(lang === "fil" ? "Naibalik na ang backup." : "Backup restored.", "INFO");
+    } catch (error) { setBackupStatus(error instanceof Error ? error.message : String(error)); announce(lang === "fil" ? "Hindi maibalik ang backup." : "Backup restore failed.", "WARNING"); }
   };
 
   const playAndExplain = (type: "head" | "step" | "vehicle" | "tick" | "sonar", label: string) => {
@@ -251,6 +284,35 @@ export default function SettingsPage() {
             {s.speech.en}
           </button>
         </div>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="battery-label">
+        <h2 id="battery-label" className="text-xl font-bold">{lang === "fil" ? "Tipid baterya" : "Battery saver"}</h2>
+        <p className="text-base text-kita-muted">{lang === "fil" ? "Binabaan ang frame rate at isinasara ang tuloy-tuloy na voice ID. Hindi awtomatikong bubukas ang camera." : "Reduces frame rates and disables continuous voice ID. Camera stays on demand."}</p>
+        <button type="button" onClick={async () => { const value = !batterySaver; setBatterySaver(value); await setSetting("batterySaver", value); announce(value ? (lang === "fil" ? "Bukas ang tipid baterya." : "Battery saver enabled.") : (lang === "fil" ? "Patay ang tipid baterya." : "Battery saver disabled."), "INFO"); }} aria-pressed={batterySaver} className={`min-h-14 w-full rounded-xl border-2 font-bold ${batterySaver ? "border-kita-accent bg-kita-accent text-kita-bg" : "border-kita-muted"}`}>{batterySaver ? (lang === "fil" ? "Tipid baterya: bukas" : "Battery saver: on") : (lang === "fil" ? "Tipid baterya: patay" : "Battery saver: off")}</button>
+        <button type="button" onClick={async () => { const batteryApi = navigator as Navigator & { getBattery?: () => Promise<{ level: number; charging: boolean }> }; if (!batteryApi.getBattery) { announce(lang === "fil" ? "Hindi suportado ang battery status sa browser na ito." : "Battery status is not supported in this browser.", "INFO"); return; } const battery = await batteryApi.getBattery(); announce(lang === "fil" ? `Baterya ay ${Math.round(battery.level * 100)} porsyento${battery.charging ? ", nakasaksak." : "."}` : `Battery is ${Math.round(battery.level * 100)} percent${battery.charging ? ", charging." : "."}`, "INFO"); }} className="min-h-14 w-full rounded-xl border border-kita-muted font-bold">{lang === "fil" ? "Ilang porsyento ang baterya?" : "What is the battery percentage?"}</button>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="storage-label">
+        <h2 id="storage-label" className="text-xl font-bold">{lang === "fil" ? "Storage at offline models" : "Storage and offline models"}</h2>
+        <p className="text-base text-kita-muted" aria-live="polite">{storageSummary || (lang === "fil" ? "Kinukuha ang storage health…" : "Checking storage health…")}</p>
+        <Link href="/setup?redownload=1" className="block min-h-14 rounded-xl bg-kita-accent p-4 text-center font-bold text-kita-bg">{lang === "fil" ? "I-download muli ang mga modelo" : "Re-download models"}</Link>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="backup-label">
+        <h2 id="backup-label" className="text-xl font-bold">{lang === "fil" ? "Encrypted na backup" : "Encrypted backup"}</h2>
+        <p className="text-base text-kita-muted">{lang === "fil" ? "I-export ang mga tao, lugar at settings sa isang .kita file na naka-encrypt gamit ang iyong passphrase." : "Export people, places and settings to one .kita file encrypted with your passphrase."}</p>
+        <label htmlFor="backup-pass" className="block text-lg font-bold">{lang === "fil" ? "Passphrase (8 karakter pataas)" : "Passphrase (at least 8 characters)"}</label>
+        <input id="backup-pass" type="password" autoComplete="new-password" value={backupPassphrase} onChange={(event) => setBackupPassphrase(event.target.value)} className="min-h-14 w-full rounded-xl border border-kita-muted bg-kita-bg px-4 text-lg" />
+        <button type="button" onClick={() => void saveBackup()} disabled={backupPassphrase.length < 8} className="min-h-14 w-full rounded-xl bg-kita-accent font-bold text-kita-bg disabled:opacity-50">{lang === "fil" ? "I-export ang backup" : "Export backup"}</button>
+        <label htmlFor="backup-file" className="block text-lg font-bold">{lang === "fil" ? "Pumili ng .kita file" : "Choose a .kita file"}</label>
+        <input id="backup-file" type="file" accept=".kita,application/vnd.kita.backup+json" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} className="min-h-14 w-full rounded-xl border border-kita-muted p-3" />
+        <label htmlFor="import-pass" className="block text-lg font-bold">{lang === "fil" ? "Passphrase ng backup" : "Backup passphrase"}</label>
+        <input id="import-pass" type="password" autoComplete="current-password" value={importPassphrase} onChange={(event) => setImportPassphrase(event.target.value)} className="min-h-14 w-full rounded-xl border border-kita-muted bg-kita-bg px-4 text-lg" />
+        <label htmlFor="import-strategy" className="block text-lg font-bold">{lang === "fil" ? "Paraan ng pag-import" : "Import behavior"}</label>
+        <select id="import-strategy" value={importStrategy} onChange={(event) => setImportStrategy(event.target.value as "merge" | "replace")} className="min-h-14 w-full rounded-xl border border-kita-muted bg-kita-bg px-4 text-lg"><option value="merge">{lang === "fil" ? "Pagsamahin" : "Merge"}</option><option value="replace">{lang === "fil" ? "Palitan lahat ng tao, lugar at setting" : "Replace all people, places and settings"}</option></select>
+        <button type="button" onClick={() => void restoreBackup()} disabled={!importFile || importPassphrase.length < 8} className="min-h-14 w-full rounded-xl border-2 border-kita-accent font-bold disabled:opacity-50">{lang === "fil" ? "I-import ang backup" : "Import backup"}</button>
+        {backupStatus && <p role="status" aria-live="polite" className="text-base">{backupStatus}</p>}
       </section>
 
       <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="voice-label">
@@ -514,6 +576,7 @@ export default function SettingsPage() {
           <h2 className="text-xl font-bold">{s.settings.depthDebug}</h2>
           <button
             type="button"
+            disabled={modelPackage !== "full"}
             onClick={async () => {
               const v = !depthDebug;
               setDepthDebug(v);
@@ -525,9 +588,10 @@ export default function SettingsPage() {
             <span className={`block w-8 h-8 rounded-full bg-white transition-transform ${depthDebug ? "translate-x-6" : "translate-x-0"}`} />
           </button>
         </div>
+        {modelPackage !== "full" && <p className="text-sm text-kita-muted">{lang === "fil" ? "I-download ang Full package para sa depth debug." : "Download the Full package to enable depth debug."}</p>}
       </section>
 
-      {depthDebug && (
+      {depthDebug && modelPackage === "full" && (
         <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="depth-debug-label">
           <h2 id="depth-debug-label" className="text-xl font-bold">{s.settings.depthDebug}</h2>
           <button
@@ -618,7 +682,7 @@ export default function SettingsPage() {
         <label htmlFor="whisper-model" className="block text-lg font-bold">{lang === "fil" ? "Modelo ng pagkilala" : "Recognition model"}</label>
         <select id="whisper-model" value={whisperModel} onChange={async (event) => { const value = event.target.value as WhisperModel; setWhisperModel(value); await setSetting("whisperModel", value); }} className="w-full min-h-14 rounded-xl border border-kita-muted bg-kita-bg px-4 text-lg">
           <option value="onnx-community/whisper-tiny">Whisper tiny (mas magaan / smaller)</option>
-          <option value="onnx-community/whisper-base">Whisper base (mas tumpak / more accurate)</option>
+          <option value="onnx-community/whisper-base" disabled={modelPackage !== "full"}>Whisper base (Full package)</option>
         </select>
         <label htmlFor="voice-language" className="block text-lg font-bold">{lang === "fil" ? "Wika ng utos" : "Command language"}</label>
         <select id="voice-language" value={voiceLanguage} onChange={async (event) => { const value = event.target.value as VoiceLanguage; setVoiceLanguage(value); await setSetting("voiceLanguage", value); }} className="w-full min-h-14 rounded-xl border border-kita-muted bg-kita-bg px-4 text-lg">
@@ -626,8 +690,9 @@ export default function SettingsPage() {
         </select>
         <div className="flex items-center justify-between gap-4">
           <div><h3 className="text-lg font-bold">{lang === "fil" ? "Kilalanin ang boses" : "Recognize voices"}</h3><p className="text-sm text-kita-muted">{lang === "fil" ? "Opsyonal at patay bilang default. Nakikinig sa maiikling audio window; nasa memorya lang ang audio." : "Optional and off by default. Listens in short audio windows; audio stays in memory."}</p></div>
-          <button type="button" onClick={async () => { const value = !voiceIdEnabled; setVoiceIdEnabled(value); await setSetting("voiceIdEnabled", value); announce(value ? (lang === "fil" ? "Nakabukas ang pagkilala sa boses." : "Voice recognition enabled.") : (lang === "fil" ? "Nakasara ang pagkilala sa boses." : "Voice recognition disabled."), "INFO"); }} aria-pressed={voiceIdEnabled} className={`w-16 h-10 shrink-0 rounded-full p-1 ${voiceIdEnabled ? "bg-kita-accent" : "bg-kita-muted"}`}><span className={`block h-8 w-8 rounded-full bg-white ${voiceIdEnabled ? "translate-x-6" : ""}`} /></button>
+          <button type="button" disabled={modelPackage !== "full"} onClick={async () => { const value = !voiceIdEnabled; setVoiceIdEnabled(value); await setSetting("voiceIdEnabled", value); announce(value ? (lang === "fil" ? "Nakabukas ang pagkilala sa boses." : "Voice recognition enabled.") : (lang === "fil" ? "Nakasara ang pagkilala sa boses." : "Voice recognition disabled."), "INFO"); }} aria-pressed={voiceIdEnabled} className={`w-16 h-10 shrink-0 rounded-full p-1 ${voiceIdEnabled ? "bg-kita-accent" : "bg-kita-muted"} disabled:opacity-40`}><span className={`block h-8 w-8 rounded-full bg-white ${voiceIdEnabled ? "translate-x-6" : ""}`} /></button>
         </div>
+        {modelPackage !== "full" && <p className="text-sm text-kita-muted">{lang === "fil" ? "I-download ang Full package para magamit ang Whisper base at voice ID." : "Download the Full package to enable Whisper base and voice ID."}</p>}
       </section>
 
       <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="sounds-label">

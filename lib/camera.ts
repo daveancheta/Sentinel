@@ -1,3 +1,5 @@
+import { getSetting } from "./db";
+
 export type FacingMode = "environment" | "user";
 
 export interface CameraOptions {
@@ -22,6 +24,8 @@ let onFrame: ((frame: CameraFrame) => void) | null = null;
 let wakeLock: WakeLockSentinel | null = null;
 let active = false;
 let busy = false;
+let frameFps = 5;
+let lastFrameAt = 0;
 
 async function acquireWakeLock() {
   if (!("wakeLock" in navigator)) return;
@@ -79,11 +83,14 @@ async function startStream(width: number, height: number, facingMode: FacingMode
 
 async function grabFrame() {
   if (!video || !onFrame || busy || !active || document.hidden) return;
+  const now = performance.now();
+  if (now - lastFrameAt < 1000 / frameFps) return;
   if (video.readyState < 2) return;
   busy = true;
   try {
     const bitmap = await createImageBitmap(video);
-    onFrame({ bitmap, width: video.videoWidth, height: video.videoHeight, timestamp: performance.now() });
+    lastFrameAt = performance.now();
+    onFrame({ bitmap, width: video.videoWidth, height: video.videoHeight, timestamp: lastFrameAt });
   } catch (e) {
     console.error("Frame grab failed", e);
   } finally {
@@ -100,7 +107,9 @@ export async function startCamera(
   onFrame = callback;
   const width = opts.width ?? 640;
   const height = opts.height ?? 480;
-  const fps = opts.fps ?? 5;
+  const saver = await getSetting<boolean>("batterySaver", false);
+  frameFps = Math.max(1, saver ? Math.min(opts.fps ?? 5, 2) : (opts.fps ?? 5));
+  lastFrameAt = 0;
   await startStream(width, height, opts.facingMode ?? "environment");
   active = true;
   await acquireWakeLock();
@@ -117,7 +126,7 @@ export async function startCamera(
     if (useRaf && video) {
       rafId = (video as any).requestVideoFrameCallback(loop);
     } else {
-      intervalId = setTimeout(loop, 1000 / fps);
+      intervalId = setTimeout(loop, 1000 / frameFps);
     }
   };
   loop();

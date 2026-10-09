@@ -85,8 +85,8 @@ export default function HomePage() {
   useEffect(() => {
     let stop: (() => void) | null = null;
     let cancelled = false;
-    getSetting<boolean>("voiceIdEnabled", false).then(async (enabled) => {
-      if (!enabled || cancelled) return;
+    Promise.all([getSetting<boolean>("voiceIdEnabled", false), getSetting<boolean>("batterySaver", false)]).then(async ([enabled, saver]) => {
+      if (!enabled || saver || cancelled) return;
       try {
         stop = await startVoiceIdentification((name) => announce(`${lang === "fil" ? "Narinig ko rin si" : "I also heard"} ${name}.`, "INFO"));
       } catch (error) {
@@ -133,6 +133,15 @@ export default function HomePage() {
         break;
       case "stop": stopAll(); break;
       case "repeat": repeatLast(); break;
+      case "battery": {
+        const batteryApi = navigator as Navigator & { getBattery?: () => Promise<{ level: number; charging: boolean }> };
+        if (!batteryApi.getBattery) announce(lang === "fil" ? "Hindi suportado ang battery status sa browser na ito." : "Battery status is not supported in this browser.", "INFO");
+        else {
+          const battery = await batteryApi.getBattery();
+          announce(lang === "fil" ? `Baterya ay ${Math.round(battery.level * 100)} porsyento${battery.charging ? ", nakasaksak." : "."}` : `Battery is ${Math.round(battery.level * 100)} percent${battery.charging ? ", charging." : "."}`, "INFO");
+        }
+        break;
+      }
     }
   };
 
@@ -240,6 +249,7 @@ export default function HomePage() {
 
   const startWhatsAhead = async () => {
     if (loading) return;
+    if (await getSetting<string>("modelPackage", "lite") !== "full") { announce(lang === "fil" ? "I-download muna ang Full package para sa pagkilala ng depth." : "Download the Full package first for depth analysis.", "WARNING"); return; }
     setLoading(true);
     stopAll();
     try {
@@ -262,6 +272,7 @@ export default function HomePage() {
 
   const startDoors = async () => {
     if (loading) return;
+    if (await getSetting<string>("modelPackage", "lite") !== "full") { announce(lang === "fil" ? "I-download muna ang Full package para sa pagkilala ng pinto." : "Download the Full package first for door detection.", "WARNING"); return; }
     setLoading(true); stopAll();
     try { await startDoorMode(); setActiveMode("door"); }
     catch (e) { announce(`Hindi mabuksan ang kamera o pagkilala sa pinto. ${e instanceof Error ? e.message : String(e)}`, "WARNING"); }
