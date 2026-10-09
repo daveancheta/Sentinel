@@ -9,8 +9,9 @@ import { startVehicleMode, stopVehicleMode } from "../modes/vehicle";
 import { startSeatMode, stopSeatMode } from "../modes/seat";
 import { startWalkStraightMode, stopWalkStraightMode } from "../modes/walkStraight";
 import { startFacingMode, stopFacingMode } from "../modes/facing";
+import { startWhosHereMode, stopWhosHereMode } from "../modes/whosHere";
 
-type ActiveMode = "vehicle" | "seat" | "walkStraight" | "facing" | null;
+type ActiveMode = "vehicle" | "seat" | "walkStraight" | "facing" | "whosHere" | null;
 
 function BigButton({
   label,
@@ -71,6 +72,7 @@ export default function HomePage() {
     stopSeatMode();
     stopWalkStraightMode();
     stopFacingMode();
+    stopWhosHereMode();
     vibrate("confirm");
     announce(s.modes.stopped, "INFO");
   };
@@ -135,6 +137,28 @@ export default function HomePage() {
     }
   };
 
+  const startWhosHere = async () => {
+    if (loading || activeMode === "whosHere") return;
+    setLoading(true);
+    stopAll();
+    try {
+      await startWhosHereMode();
+      setActiveMode("whosHere");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      announce(`Hindi mabuksan ang kamera. ${msg}`, "WARNING");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const onDoubleShake = () => startWhosHere();
+    window.addEventListener("kita-double-shake", onDoubleShake);
+    return () => window.removeEventListener("kita-double-shake", onDoubleShake);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const comingSoon = (name: string) => {
     vibrate("confirm");
     announce(`${name}. ${s.home.comingSoon}`, "INFO");
@@ -159,7 +183,8 @@ export default function HomePage() {
       <div className="grid grid-cols-2 gap-4">
         <BigButton
           label={s.home.whosHere}
-          onClick={() => comingSoon(s.home.whosHere)}
+          active={activeMode === "whosHere"}
+          onClick={startWhosHere}
           testId="btn-whos-here"
         />
         <BigButton

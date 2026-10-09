@@ -15,6 +15,11 @@ import { getStrings, type Language } from "../../lib/i18n";
 import { clearAllData, getSetting, setSetting } from "../../lib/db";
 import { playEarcon } from "../../lib/audio/earcons";
 import { vibrate } from "../../lib/haptics";
+import { startGuardMode, stopGuardMode } from "../../modes/guard";
+import { calibrationScores } from "../../lib/faces/match";
+import { db } from "../../lib/db";
+import { startCamera, stopCamera } from "../../lib/camera";
+import { initFaces, setFacesCallback, sendFacesFrame, stopFaces } from "../../lib/faces-bridge";
 
 export default function SettingsPage() {
   const [lang, setLang] = useState<Language>("fil");
@@ -25,6 +30,12 @@ export default function SettingsPage() {
   const [discreet, setDiscreet] = useState<boolean>(false);
   const [haptics, setHaptics] = useState<boolean>(true);
   const [walkThreshold, setWalkThreshold] = useState<number>(10);
+  const [faceThreshold, setFaceThreshold] = useState<number>(0.6);
+  const [expressions, setExpressions] = useState<boolean>(true);
+  const [guardCamera, setGuardCamera] = useState<"user" | "environment">("user");
+  const [guardActive, setGuardActive] = useState<boolean>(false);
+  const [calibActive, setCalibActive] = useState<boolean>(false);
+  const [calibText, setCalibText] = useState<string>("");
   const [showDelete, setShowDelete] = useState(false);
 
   const s = getStrings(lang);
@@ -40,12 +51,19 @@ export default function SettingsPage() {
       setDiscreet(await getSetting<boolean>("discreet", false));
       setHaptics(await getSetting<boolean>("haptics", true));
       setWalkThreshold(await getSetting<number>("walkStraightThreshold", 10));
+      setFaceThreshold(await getSetting<number>("faceThreshold", 0.6));
+      setExpressions(await getSetting<boolean>("expressionsEnabled", true));
+      setGuardCamera(await getSetting<"user" | "environment">("guardCamera", "user"));
       const uri = await getSetting<string | null>("voiceUri", null);
       setSelectedVoice(uri ?? "");
       if ("speechSynthesis" in window) {
         window.speechSynthesis.onvoiceschanged = () => setVoices(getVoices());
       }
     })();
+    return () => {
+      stopGuardMode();
+      stopCalibration();
+    };
   }, []);
 
   const changeLang = async (next: Language) => {
@@ -80,6 +98,44 @@ export default function SettingsPage() {
   const playAndExplain = (type: "head" | "step" | "vehicle" | "tick" | "sonar", label: string) => {
     playEarcon(type);
     announce(`${label}. ${s.sounds[type === "head" ? "headLevel" : type === "step" ? "stepDown" : type === "vehicle" ? "vehicle" : type === "tick" ? "tick" : "sonar"]}`, "INFO");
+  };
+
+  const stopCalibration = () => {
+    setCalibActive(false);
+    setCalibText("");
+    setFacesCallback(null);
+    stopFaces();
+    stopCamera();
+  };
+
+  const toggleCalibration = async () => {
+    if (calibActive) {
+      stopCalibration();
+      return;
+    }
+    setCalibActive(true);
+    setCalibText(s.settings.calibration);
+    try {
+      const people = await db.people.toArray();
+      await initFaces();
+      setFacesCallback(async (faces) => {
+        if (faces.length === 0) return;
+        const f = faces[0];
+        const scores = calibrationScores(f.embedding, people);
+        const lines = scores.map((sc) => `${sc.name}: ${sc.similarity.toFixed(2)}`);
+        const text = lines.length ? lines.join(", ") : s.people.noPeople;
+        setCalibText(text);
+        if (scores.length > 0) {
+          const top = scores[0];
+          announce(`${top.name} ${top.similarity.toFixed(2)}`, "INFO");
+        }
+      });
+      await startCamera({ fps: 2, facingMode: "environment" }, (frame) => {
+        sendFacesFrame(frame.bitmap, frame.timestamp);
+      });
+    } catch {
+      stopCalibration();
+    }
   };
 
   return (
@@ -215,6 +271,104 @@ export default function SettingsPage() {
         <p className="text-lg text-kita-muted" aria-hidden="true">
           {walkThreshold}°
         </p>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="face-threshold-label">
+        <h2 id="face-threshold-label" className="text-xl font-bold">{s.settings.faceThreshold}</h2>
+        <input
+          type="range"
+          min="0.35"
+          max="0.85"
+          step="0.05"
+          value={faceThreshold}
+          onChange={async (e) => {
+            const v = Number(e.target.value);
+            setFaceThreshold(v);
+            await setSetting("faceThreshold", v);
+          }}
+          className="w-full accent-kita-accent"
+          aria-valuetext={`${faceThreshold.toFixed(2)}`}
+        />
+        <p className="text-lg text-kita-muted" aria-hidden="true">
+          {faceThreshold.toFixed(2)}
+        </p>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold">{s.settings.expressionsEnabled}</h2>
+          <button
+            type="button"
+            onClick={async () => {
+              const v = !expressions;
+              setExpressions(v);
+              await setSetting("expressionsEnabled", v);
+            }}
+            className={`w-16 h-10 rounded-full p-1 transition-colors ${expressions ? "bg-kita-accent" : "bg-kita-muted"}`}
+            aria-pressed={expressions}
+          >
+            <span className={`block w-8 h-8 rounded-full bg-white transition-transform ${expressions ? "translate-x-6" : "translate-x-0"}`} />
+          </button>
+        </div>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="guard-label">
+        <h2 id="guard-label" className="text-xl font-bold">{s.settings.guardCamera}</h2>
+        <div className="flex gap-2">
+          {(["user", "environment"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={async () => {
+                setGuardCamera(v);
+                await setSetting("guardCamera", v);
+              }}
+              className={`flex-1 min-h-[64px] rounded-xl font-bold border-2 ${guardCamera === v ? "bg-kita-accent text-kita-bg border-kita-accent" : "border-kita-muted text-kita-text"}`}
+              aria-pressed={guardCamera === v}
+            >
+              {s.settings[v === "user" ? "guardCameraFront" : "guardCameraRear"]}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold">{s.settings.guardMode}</h2>
+          <button
+            type="button"
+            onClick={async () => {
+              const v = !guardActive;
+              setGuardActive(v);
+              if (v) {
+                try {
+                  await startGuardMode();
+                  announce(s.modes.guard.on ?? s.settings.guardMode, "INFO");
+                } catch {
+                  setGuardActive(false);
+                }
+              } else {
+                stopGuardMode();
+              }
+            }}
+            className={`w-16 h-10 rounded-full p-1 transition-colors ${guardActive ? "bg-kita-accent" : "bg-kita-muted"}`}
+            aria-pressed={guardActive}
+          >
+            <span className={`block w-8 h-8 rounded-full bg-white transition-transform ${guardActive ? "translate-x-6" : "translate-x-0"}`} />
+          </button>
+        </div>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="calibration-label">
+        <h2 id="calibration-label" className="text-xl font-bold">{s.settings.calibration}</h2>
+        <button
+          type="button"
+          onClick={toggleCalibration}
+          className={`w-full min-h-[64px] rounded-xl font-bold border-2 ${calibActive ? "bg-kita-danger text-white border-kita-danger" : "bg-kita-accent text-kita-bg border-kita-accent"}`}
+          aria-pressed={calibActive}
+        >
+          {calibActive ? s.settings.stopCalibration : s.settings.startCalibration}
+        </button>
+        <div aria-live="polite" aria-atomic="true" className="text-lg text-kita-text">
+          {calibText}
+        </div>
       </section>
 
       <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="sounds-label">

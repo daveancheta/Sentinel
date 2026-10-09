@@ -8,6 +8,8 @@ const root = join(__dirname, "..");
 const WASM_SOURCE = join(root, "node_modules", "@mediapipe", "tasks-vision", "wasm");
 const WASM_DEST = join(root, "public", "mediapipe", "wasm");
 const MODELS_DEST = join(root, "public", "models", "mediapipe");
+const HUMAN_SOURCE = join(root, "node_modules", "@vladmandic", "human", "models");
+const HUMAN_DEST = join(root, "public", "models", "human");
 
 const MODELS = [
   {
@@ -41,6 +43,32 @@ function copyWasm() {
   }
 }
 
+function copyHumanModels() {
+  ensureDir(HUMAN_DEST);
+  const files = [
+    "blazeface.json",
+    "blazeface.bin",
+    "emotion.json",
+    "emotion.bin",
+    "faceres.json",
+    "faceres.bin",
+  ];
+  for (const file of files) {
+    const src = join(HUMAN_SOURCE, file);
+    const dest = join(HUMAN_DEST, file);
+    if (!existsSync(src)) {
+      console.warn(`Human model not found: ${file}`);
+      continue;
+    }
+    if (!existsSync(dest)) {
+      copyFileSync(src, dest);
+      console.log(`Copied human model: ${file}`);
+    } else {
+      console.log(`Human model exists: ${file}`);
+    }
+  }
+}
+
 async function fetchModel(model) {
   ensureDir(MODELS_DEST);
   const dest = join(MODELS_DEST, model.file);
@@ -60,6 +88,7 @@ async function fetchModel(model) {
 
 async function main() {
   copyWasm();
+  copyHumanModels();
   for (const model of MODELS) {
     await fetchModel(model);
   }

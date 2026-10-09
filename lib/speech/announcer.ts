@@ -14,6 +14,7 @@ interface QueueItem {
   text: string;
   priority: Priority;
   lang: Language;
+  volume?: number;
 }
 
 const queue: QueueItem[] = [];
@@ -62,7 +63,7 @@ async function speakNext(): Promise<void> {
   utter.lang = item.lang === "fil" ? "fil-PH" : "en-PH";
   utter.rate = speechRate;
   utter.pitch = 1;
-  utter.volume = 1;
+  utter.volume = item.volume ?? 1;
 
   utter.onend = () => {
     isSpeaking = false;
@@ -119,7 +120,7 @@ export async function setCooldown(ms: number): Promise<void> {
   await setSetting("cooldownMs", ms);
 }
 
-export function announce(text: string, priority: Priority = "INFO", options?: { force?: boolean }): void {
+export function announce(text: string, priority: Priority = "INFO", options?: { force?: boolean; volume?: number }): void {
   if (!text) return;
   const now = Date.now();
   if (!options?.force && text === lastMessage && now - lastMessageTime < cooldownMs) return;
@@ -130,7 +131,7 @@ export function announce(text: string, priority: Priority = "INFO", options?: { 
     queue.length = 0;
   }
 
-  queue.push({ text, priority, lang: currentLang });
+  queue.push({ text, priority, lang: currentLang, volume: options?.volume });
   ariaLive?.(text);
   speakNext();
 }

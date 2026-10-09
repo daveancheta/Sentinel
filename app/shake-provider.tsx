@@ -11,7 +11,9 @@ export function ShakeProvider({ children }: { children: ReactNode }) {
     let lastY = 0;
     let lastZ = 0;
     let lastShake = 0;
+    let shakeCount = 0;
     const SHAKE_THRESHOLD = 15;
+    const DOUBLE_WINDOW = 600;
 
     const onMotion = (e: DeviceMotionEvent) => {
       const acc = e.accelerationIncludingGravity;
@@ -25,8 +27,14 @@ export function ShakeProvider({ children }: { children: ReactNode }) {
       if (delta > SHAKE_THRESHOLD) {
         const now = Date.now();
         if (now - lastShake > 1200) {
+          shakeCount = 1;
           lastShake = now;
-          repeatLast();
+          setTimeout(() => {
+            if (shakeCount === 1) repeatLast();
+          }, DOUBLE_WINDOW + 50);
+        } else if (now - lastShake < DOUBLE_WINDOW) {
+          shakeCount = 2;
+          window.dispatchEvent(new CustomEvent("kita-double-shake"));
         }
       }
     };
