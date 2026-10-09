@@ -1,4 +1,4 @@
-import { announce } from "../lib/speech/announcer";
+import { announce, announceUncertain } from "../lib/speech/announcer";
 import { playEarcon } from "../lib/audio/earcons";
 import { startCamera, stopCamera } from "../lib/camera";
 
@@ -41,12 +41,16 @@ export function matchSignWords(words: OcrWord[]): SignMatch[] {
   return matches;
 }
 
-let active = false, worker: Worker | null = null, target = "", readAll = false, foundCentered = false, lastAnnouncement = "", lastHeardAt = 0, lastFrameAt = 0;
+let active = false, worker: Worker | null = null, target = "", readAll = false, foundCentered = false, lastAnnouncement = "", lastHeardAt = 0, lastFrameAt = 0, lastUncertainAt = 0;
 function sayMatches(words: OcrWord[]) {
   const found = matchSignWords(words);
   const wanted = normalize(target);
   const match = found.find((item) => (!wanted || normalize(item.kind).includes(wanted) || normalize(item.text).includes(wanted)) && !foundCentered);
   if (match) {
+    if (match.confidence < 45) {
+      if (Date.now() - lastUncertainAt > 5000) { lastUncertainAt = Date.now(); announceUncertain(); }
+      return;
+    }
     const line = `${match.kind}, ${match.side === "harap" ? "diretso sa harap" : `sa ${match.side}`}.`;
     const key = `${line}:${Math.round(match.center * 10)}`;
     if (key !== lastAnnouncement || Date.now() - lastHeardAt > 5000) { announce(line, "INFO"); lastAnnouncement = key; lastHeardAt = Date.now(); }

@@ -75,7 +75,10 @@ async function init() {
 }
 
 async function detect(bitmap: ImageBitmap, frameTime: number) {
-  if (!human || processing) return;
+  if (!human || processing) {
+    bitmap.close();
+    return;
+  }
   processing = true;
   try {
     const result = await human.detect(bitmap);

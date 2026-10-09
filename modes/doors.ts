@@ -1,9 +1,9 @@
-import { announce } from "../lib/speech/announcer";
+import { announce, announceUncertain } from "../lib/speech/announcer";
 import { playEarcon } from "../lib/audio/earcons";
 import { startCamera, stopCamera } from "../lib/camera";
 import { matchSignWords, type OcrWord } from "./signs";
 
-let active = false, worker: Worker | null = null, ocrWorker: Worker | null = null, lastPosition = "", lastText = "", lastFrameAt = 0, reachedHandle = false;
+let active = false, worker: Worker | null = null, ocrWorker: Worker | null = null, lastPosition = "", lastText = "", lastFrameAt = 0, reachedHandle = false, lastUncertainAt = 0;
 export async function startDoorMode() {
   stopDoorMode(); active = true; lastFrameAt = 0;
   worker = new Worker(new URL("../workers/zeroshot.worker.ts", import.meta.url));
@@ -24,6 +24,10 @@ export async function startDoorMode() {
     const detections = event.data.detections as Array<{ label: string; score: number; bbox: { xMin: number; yMin: number; width: number; height: number } }>;
     const door = detections.filter((d) => d.label.includes("door") && !d.label.includes("handle")).sort((a, b) => b.score - a.score)[0];
     if (!door) return;
+    if (door.score < 0.4) {
+      if (Date.now() - lastUncertainAt > 5000) { lastUncertainAt = Date.now(); announceUncertain(); }
+      return;
+    }
     const center = door.bbox.xMin + door.bbox.width / 2;
     const side = center < .38 ? "kaliwa" : center > .62 ? "kanan" : "harap";
     const handle = detections.filter((d) => d.label.includes("handle") && d.bbox.yMin + d.bbox.height > door.bbox.yMin && d.bbox.yMin < door.bbox.yMin + door.bbox.height).sort((a, b) => b.score - a.score)[0];

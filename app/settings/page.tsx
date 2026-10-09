@@ -10,6 +10,7 @@ import {
   setVoiceUri,
   getVoices,
   getCurrentLanguage,
+  setQuietMode,
 } from "../../lib/speech/announcer";
 import { getStrings, type Language } from "../../lib/i18n";
 import { clearAllData, getSetting, setSetting } from "../../lib/db";
@@ -63,6 +64,10 @@ export default function SettingsPage() {
   const [importStrategy, setImportStrategy] = useState<"merge" | "replace">("merge");
   const [backupStatus, setBackupStatus] = useState("");
   const [modelPackage, setModelPackage] = useState<"lite" | "full">("lite");
+  const [demoMode, setDemoMode] = useState(false);
+  const [quietMode, setQuietModeState] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
 
   const s = getStrings(lang);
 
@@ -92,6 +97,8 @@ export default function SettingsPage() {
       setVoiceIdEnabled(await getSetting<boolean>("voiceIdEnabled", false));
       setBatterySaver(await getSetting<boolean>("batterySaver", false));
       setModelPackage(await getSetting<"lite" | "full">("modelPackage", "lite"));
+      setDemoMode(await getSetting<boolean>("demoMode", false));
+      setQuietModeState(await getSetting<boolean>("quietMode", false));
       const uri = await getSetting<string | null>("voiceUri", null);
       setSelectedVoice(uri ?? "");
       await navigator.storage?.persist?.();
@@ -106,6 +113,27 @@ export default function SettingsPage() {
       stopCalibration();
     };
   }, []);
+
+  const tutorialSteps = lang === "fil" ? [
+    "Sa home, lumipat sa mga malalaking button gamit ang swipe o Tab. Pindutin ang Stop para isara ang kasalukuyang mode.",
+    "Pindutin nang matagal ang button na Hawakan para magsalita habang sinasabi ang utos. Sa toggle mode, pindutin para magsimula at pindutin ulit para matapos.",
+    "Ang maikling tick ay kumpirmasyon. Ang mataas na beep ay babala sa ulo; ang mababang tunog ay hagdan o curb; ang sirena ay sasakyan. Sa supported phone, isa o dalawang vibration ang kaliwa o kanan.",
+    "Sino ang nandito ay kumikilala sa mga taong na-enroll. Kailangan ang pahintulot nila. Hanap upuan ay gumagabay sa upuang bakante.",
+    "Lakad ay nagbibigay ng babala sa sasakyan at, kapag naka-install ang Full package, sa ulo at hagdan. Diretsong lakad ay nagbibigay ng tahimik na pagwawasto ng direksyon.",
+    "Hanapin ang CR o Exit ay bumabasa ng karatula. Which Way ay nagsasabi ng direksyon. Pindutin ang Ulitin o i-shake ang phone para ulitin ang huling mensahe.",
+  ] : [
+    "On Home, move through the large buttons with swipe or Tab. Press Stop to end the current mode.",
+    "Press and hold the Hold to talk button while you say a command. In toggle mode, press once to start and again to finish.",
+    "A soft tick confirms an action. A high tone warns about head level; a low tone signals stairs or a curb; the siren warns about vehicles. Supported phones also vibrate left or right.",
+    "Who's Here recognizes people you enrolled with their consent. Find Seat guides you toward an empty seat.",
+    "Walking warns about vehicles and, with the Full package installed, overhead hazards and steps. Walk Straight gives quiet direction corrections.",
+    "Find CR or Exit reads signs. Which Way announces direction. Press Repeat or shake the phone to hear the last message again.",
+  ];
+  const tutorialText = tutorialSteps[tutorialStep];
+
+  useEffect(() => {
+    if (tutorialOpen) announce(tutorialText, "INFO");
+  }, [tutorialOpen, tutorialText]);
 
   const changeLang = async (next: Language) => {
     await setLanguage(next);
@@ -265,6 +293,28 @@ export default function SettingsPage() {
           {s.settings.close}
         </Link>
       </header>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="demo-label">
+        <h2 id="demo-label" className="text-xl font-bold">{lang === "fil" ? "Demo at captions" : "Demo and captions"}</h2>
+        <p className="text-base text-kita-muted">{lang === "fil" ? "Ipinapakita sa malalaking caption ang bawat sinasabi ni Kita." : "Shows every Kita announcement as a large on-screen caption."}</p>
+        <button type="button" onClick={async () => { const value = !demoMode; setDemoMode(value); await setSetting("demoMode", value); window.dispatchEvent(new CustomEvent("kita-demo-toggle", { detail: value })); announce(value ? (lang === "fil" ? "Bukas ang demo captions." : "Demo captions enabled.") : (lang === "fil" ? "Patay ang demo captions." : "Demo captions disabled."), "INFO"); }} aria-pressed={demoMode} className={`min-h-14 w-full rounded-xl border-2 font-bold ${demoMode ? "border-kita-accent bg-kita-accent text-kita-bg" : "border-kita-muted"}`}>{demoMode ? (lang === "fil" ? "Demo: bukas" : "Demo: on") : (lang === "fil" ? "Demo: patay" : "Demo: off")}</button>
+        <h3 className="text-lg font-bold">{lang === "fil" ? "Checklist ng demo" : "Demo checklist"}</h3>
+        <ol className="list-decimal space-y-2 pl-6 text-base leading-relaxed">
+          {(lang === "fil" ? ["I-on ang airplane mode pagkatapos i-download ang models.", "Sabihin: ‘Sino ang nandito?’ para sa mga pangalan at posisyon.", "Simulan ang Lakad para sa babala sa ulo at baitang; kailangan ang Full package.", "Sabihin: ‘Diretso’ para sa pagwawasto ng direksyon.", "Sabihin: ‘Hanap upuan’ para maghanap ng bakanteng upuan.", "Sabihin: ‘Hanapin ang CR’ habang nakatapat sa naka-print na karatula.", "Buksan ang Settings: walang account; nananatili sa phone ang data."] : ["Turn on airplane mode after downloading the models.", "Say ‘Who's here?’ for names and positions.", "Start Walking for head and step alerts; the Full package is required.", "Say ‘Walk straight’ to hear direction corrections.", "Say ‘Find seat’ to locate an empty seat.", "Say ‘Find CR’ while facing a printed sign.", "Open Settings: no account; data stays on this phone."]).map((item) => <li key={item}>{item}</li>)}
+        </ol>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="tutorial-label">
+        <h2 id="tutorial-label" className="text-xl font-bold">{lang === "fil" ? "Paano gamitin" : "How to use Kita"}</h2>
+        <p className="text-base text-kita-muted">{lang === "fil" ? "Muling pakinggan ang gabay sa gestures, tunog, vibration at mga mode." : "Replay the spoken guide to gestures, sounds, vibration and modes."}</p>
+        {!tutorialOpen ? <button type="button" onClick={() => { setTutorialStep(0); setTutorialOpen(true); }} className="min-h-14 w-full rounded-xl bg-kita-accent font-bold text-kita-bg">{lang === "fil" ? "Simulan ang tutorial" : "Start tutorial"}</button> : <div className="space-y-3" aria-live="polite"><p className="text-lg">{tutorialSteps[tutorialStep]}</p><p className="text-sm text-kita-muted">{tutorialStep + 1} / {tutorialSteps.length}</p><div className="flex gap-2"><button type="button" disabled={tutorialStep === 0} onClick={() => setTutorialStep((step) => Math.max(0, step - 1))} className="min-h-12 flex-1 rounded-lg border border-kita-muted font-bold disabled:opacity-50">{lang === "fil" ? "Bumalik" : "Back"}</button><button type="button" onClick={() => tutorialStep === tutorialSteps.length - 1 ? setTutorialOpen(false) : setTutorialStep((step) => step + 1)} className="min-h-12 flex-1 rounded-lg bg-kita-accent font-bold text-kita-bg">{tutorialStep === tutorialSteps.length - 1 ? (lang === "fil" ? "Tapos" : "Finish") : (lang === "fil" ? "Susunod" : "Next")}</button></div></div>}
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="quiet-label">
+        <h2 id="quiet-label" className="text-xl font-bold">{lang === "fil" ? "Quiet mode" : "Quiet mode"}</h2>
+        <p className="text-base text-kita-muted">{lang === "fil" ? "Info at ambient na mensahe ay tunog lang. Babala at panganib lang ang bibigkasin." : "Info and ambient announcements become earcons. Warnings and danger are spoken."}</p>
+        <button type="button" onClick={async () => { const value = !quietMode; setQuietModeState(value); await setQuietMode(value); announce(value ? (lang === "fil" ? "Bukas ang quiet mode." : "Quiet mode enabled.") : (lang === "fil" ? "Patay ang quiet mode." : "Quiet mode disabled."), "WARNING"); }} aria-pressed={quietMode} className={`min-h-14 w-full rounded-xl border-2 font-bold ${quietMode ? "border-kita-accent bg-kita-accent text-kita-bg" : "border-kita-muted"}`}>{quietMode ? (lang === "fil" ? "Quiet mode: bukas" : "Quiet mode: on") : (lang === "fil" ? "Quiet mode: patay" : "Quiet mode: off")}</button>
+      </section>
 
       <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="lang-label">
         <h2 id="lang-label" className="text-xl font-bold">{s.settings.language}</h2>

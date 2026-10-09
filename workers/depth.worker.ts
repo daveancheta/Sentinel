@@ -77,7 +77,10 @@ self.addEventListener("message", async (e: MessageEvent) => {
   }
 
   if (type === "frame") {
-    if (!estimator || processing) return;
+    if (!estimator || processing) {
+      (e.data.bitmap as ImageBitmap | undefined)?.close();
+      return;
+    }
     processing = true;
     try {
       const bitmap: ImageBitmap = e.data.bitmap;

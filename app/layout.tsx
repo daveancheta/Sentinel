@@ -3,6 +3,7 @@ import "./globals.css";
 import { AnnouncerRegion } from "./announcer-region";
 import { ShakeProvider } from "./shake-provider";
 import { SetupGate } from "./setup-gate";
+import { PwaRegistration } from "./pwa-registration";
 
 export const metadata: Metadata = {
   title: "Kita",
@@ -19,8 +20,8 @@ export const viewport: Viewport = {
   themeColor: "#0a0a0a",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
+  userScalable: true,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="fil">
       <body className="bg-kita-bg text-kita-text min-h-screen">
         <ShakeProvider>
+          <PwaRegistration />
           <SetupGate>{children}</SetupGate>
           <AnnouncerRegion lang="fil" />
         </ShakeProvider>

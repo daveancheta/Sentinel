@@ -1,5 +1,6 @@
 import { getSetting, setSetting } from "../db";
 import { getStrings, type Language } from "../i18n";
+import { playEarcon } from "../audio/earcons";
 
 export type Priority = "DANGER" | "WARNING" | "INFO" | "AMBIENT";
 
@@ -26,6 +27,7 @@ let lastMessage = "";
 let lastMessageTime = 0;
 let cooldownMs = 4000;
 let ariaLive: ((text: string) => void) | null = null;
+let quietMode = false;
 
 function sortQueue(): void {
   queue.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]);
@@ -87,6 +89,7 @@ export async function initAnnouncer(): Promise<void> {
   currentVoiceUri = await getSetting<string | null>("voiceUri", null);
   speechRate = await getSetting<number>("speechRate", 1.1);
   cooldownMs = await getSetting<number>("cooldownMs", 4000);
+  quietMode = await getSetting<boolean>("quietMode", false);
 
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
     window.speechSynthesis.getVoices();
@@ -120,8 +123,28 @@ export async function setCooldown(ms: number): Promise<void> {
   await setSetting("cooldownMs", ms);
 }
 
+export async function setQuietMode(enabled: boolean): Promise<void> {
+  quietMode = enabled;
+  await setSetting("quietMode", enabled);
+}
+
+export function isQuietMode(): boolean {
+  return quietMode;
+}
+
+export function announceUncertain(): void {
+  const message = currentLang === "fil"
+    ? "Hindi ako sigurado, lumapit o huminto sandali."
+    : "I'm not sure. Move closer or hold still for a moment.";
+  announce(message, "WARNING");
+}
+
 export function announce(text: string, priority: Priority = "INFO", options?: { force?: boolean; volume?: number }): void {
   if (!text) return;
+  if (quietMode && (priority === "INFO" || priority === "AMBIENT")) {
+    playEarcon(priority === "AMBIENT" ? "sonar" : "tick");
+    return;
+  }
   const now = Date.now();
   if (!options?.force && text === lastMessage && now - lastMessageTime < cooldownMs) return;
 
@@ -132,7 +155,6 @@ export function announce(text: string, priority: Priority = "INFO", options?: { 
   }
 
   queue.push({ text, priority, lang: currentLang, volume: options?.volume });
-  ariaLive?.(text);
   speakNext();
 }
 

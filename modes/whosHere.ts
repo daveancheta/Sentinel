@@ -5,7 +5,7 @@ import { center, directionFromCenter, distanceFromHeight } from "../lib/geometry
 import { db, type Person } from "../lib/db";
 import { getStrings } from "../lib/i18n";
 import { getCurrentLanguage } from "../lib/speech/announcer";
-import { announce } from "../lib/speech/announcer";
+import { announce, announceUncertain } from "../lib/speech/announcer";
 import { vibrate } from "../lib/haptics";
 import { getSetting } from "../lib/db";
 
@@ -26,6 +26,7 @@ let threshold = 0.6;
 let expressionsEnabled = true;
 let previous: SeenFace[] = [];
 let lastUnknownAnnounce = 0;
+let lastFaceUncertain = 0;
 const ARRIVAL_COOLDOWN = 60000;
 const MOVE_COOLDOWN = 3000;
 const EXPRESSION_COOLDOWN = 10000;
@@ -142,6 +143,10 @@ function onFaces(faces: import("../lib/faces-bridge").Face[], frameTime: number)
         lastEmotion: prev?.lastEmotion,
       });
     } else {
+      if (people.length > 0 && match.similarity >= threshold - 0.08) {
+        if (now - lastFaceUncertain > 5000) { lastFaceUncertain = now; announceUncertain(); }
+        continue;
+      }
       const prev = previous.find((p) => p.id === "unknown");
       current.push({
         id: "unknown",
@@ -176,6 +181,7 @@ export async function startWhosHereMode(): Promise<void> {
   if (active) return;
   active = true;
   previous = [];
+  lastFaceUncertain = 0;
   const s = getStrings(getCurrentLanguage());
   threshold = await getSetting<number>("faceThreshold", 0.6);
   expressionsEnabled = await getSetting<boolean>("expressionsEnabled", true);
