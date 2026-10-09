@@ -24,6 +24,7 @@ export default function SettingsPage() {
   const [verbosity, setVerbosity] = useState<string>("normal");
   const [discreet, setDiscreet] = useState<boolean>(false);
   const [haptics, setHaptics] = useState<boolean>(true);
+  const [walkThreshold, setWalkThreshold] = useState<number>(10);
   const [showDelete, setShowDelete] = useState(false);
 
   const s = getStrings(lang);
@@ -38,6 +39,7 @@ export default function SettingsPage() {
       setVerbosity(await getSetting<string>("verbosity", "normal"));
       setDiscreet(await getSetting<boolean>("discreet", false));
       setHaptics(await getSetting<boolean>("haptics", true));
+      setWalkThreshold(await getSetting<number>("walkStraightThreshold", 10));
       const uri = await getSetting<string | null>("voiceUri", null);
       setSelectedVoice(uri ?? "");
       if ("speechSynthesis" in window) {
@@ -192,6 +194,27 @@ export default function SettingsPage() {
             />
           </button>
         </div>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="threshold-label">
+        <h2 id="threshold-label" className="text-xl font-bold">{s.settings.walkStraightThreshold}</h2>
+        <input
+          type="range"
+          min="5"
+          max="45"
+          step="5"
+          value={walkThreshold}
+          onChange={async (e) => {
+            const v = Number(e.target.value);
+            setWalkThreshold(v);
+            await setSetting("walkStraightThreshold", v);
+          }}
+          className="w-full accent-kita-accent"
+          aria-valuetext={`${walkThreshold} degrees`}
+        />
+        <p className="text-lg text-kita-muted" aria-hidden="true">
+          {walkThreshold}°
+        </p>
       </section>
 
       <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="sounds-label">

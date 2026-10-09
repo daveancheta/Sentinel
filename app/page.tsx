@@ -7,8 +7,10 @@ import { getStrings, type Language } from "../lib/i18n";
 import { vibrate } from "../lib/haptics";
 import { startVehicleMode, stopVehicleMode } from "../modes/vehicle";
 import { startSeatMode, stopSeatMode } from "../modes/seat";
+import { startWalkStraightMode, stopWalkStraightMode } from "../modes/walkStraight";
+import { startFacingMode, stopFacingMode } from "../modes/facing";
 
-type ActiveMode = "vehicle" | "seat" | null;
+type ActiveMode = "vehicle" | "seat" | "walkStraight" | "facing" | null;
 
 function BigButton({
   label,
@@ -67,6 +69,8 @@ export default function HomePage() {
     setActiveMode(null);
     stopVehicleMode();
     stopSeatMode();
+    stopWalkStraightMode();
+    stopFacingMode();
     vibrate("confirm");
     announce(s.modes.stopped, "INFO");
   };
@@ -96,6 +100,36 @@ export default function HomePage() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       announce(`Hindi mabuksan ang kamera. ${msg}`, "WARNING");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startWalkStraight = async () => {
+    if (loading || activeMode === "walkStraight") return;
+    setLoading(true);
+    stopAll();
+    try {
+      await startWalkStraightMode();
+      setActiveMode("walkStraight");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      announce(`Hindi mabuksan ang compass. ${msg}`, "WARNING");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startFacing = async () => {
+    if (loading || activeMode === "facing") return;
+    setLoading(true);
+    stopAll();
+    try {
+      await startFacingMode();
+      setActiveMode("facing");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      announce(`Hindi mabuksan ang compass o kamera. ${msg}`, "WARNING");
     } finally {
       setLoading(false);
     }
@@ -136,7 +170,8 @@ export default function HomePage() {
         />
         <BigButton
           label={s.home.walkStraight}
-          onClick={() => comingSoon(s.home.walkStraight)}
+          active={activeMode === "walkStraight"}
+          onClick={startWalkStraight}
           testId="btn-walk-straight"
         />
         <BigButton
@@ -152,7 +187,8 @@ export default function HomePage() {
         />
         <BigButton
           label={s.home.whichWay}
-          onClick={() => comingSoon(s.home.whichWay)}
+          active={activeMode === "facing"}
+          onClick={startFacing}
           testId="btn-which-way"
         />
       </div>
