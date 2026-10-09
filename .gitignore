@@ -1,0 +1,22 @@
+# Dependencies
+node_modules
+
+# Build output
+.next
+dist
+
+# Models and generated service worker (downloaded/built at build time)
+public/models
+public/mediapipe
+public/sw.js
+public/sw.js.map
+
+# Environment / secrets
+.env*
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
