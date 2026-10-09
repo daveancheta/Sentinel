@@ -5,13 +5,14 @@ import Link from "next/link";
 import { initAnnouncer, announce, repeatLast, getCurrentLanguage } from "../lib/speech/announcer";
 import { getStrings, type Language } from "../lib/i18n";
 import { vibrate } from "../lib/haptics";
-import { startVehicleMode, stopVehicleMode } from "../modes/vehicle";
 import { startSeatMode, stopSeatMode } from "../modes/seat";
 import { startWalkStraightMode, stopWalkStraightMode } from "../modes/walkStraight";
 import { startFacingMode, stopFacingMode } from "../modes/facing";
 import { startWhosHereMode, stopWhosHereMode } from "../modes/whosHere";
+import { startWalkingMode, stopWalkingMode } from "../modes/walking";
+import { startWhatsAheadMode } from "../modes/whatsAhead";
 
-type ActiveMode = "vehicle" | "seat" | "walkStraight" | "facing" | "whosHere" | null;
+type ActiveMode = "walking" | "seat" | "walkStraight" | "facing" | "whosHere" | null;
 
 function BigButton({
   label,
@@ -68,7 +69,7 @@ export default function HomePage() {
 
   const stopAll = () => {
     setActiveMode(null);
-    stopVehicleMode();
+    stopWalkingMode();
     stopSeatMode();
     stopWalkStraightMode();
     stopFacingMode();
@@ -77,13 +78,13 @@ export default function HomePage() {
     announce(s.modes.stopped, "INFO");
   };
 
-  const startVehicle = async () => {
-    if (loading || activeMode === "vehicle") return;
+  const startWalking = async () => {
+    if (loading || activeMode === "walking") return;
     setLoading(true);
     stopAll();
     try {
-      await startVehicleMode();
-      setActiveMode("vehicle");
+      await startWalkingMode();
+      setActiveMode("walking");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       announce(`Hindi mabuksan ang kamera. ${msg}`, "WARNING");
@@ -152,17 +153,26 @@ export default function HomePage() {
     }
   };
 
+  const startWhatsAhead = async () => {
+    if (loading) return;
+    setLoading(true);
+    stopAll();
+    try {
+      await startWhatsAheadMode();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      announce(`Hindi mabuksan ang kamera. ${msg}`, "WARNING");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const onDoubleShake = () => startWhosHere();
     window.addEventListener("kita-double-shake", onDoubleShake);
     return () => window.removeEventListener("kita-double-shake", onDoubleShake);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const comingSoon = (name: string) => {
-    vibrate("confirm");
-    announce(`${name}. ${s.home.comingSoon}`, "INFO");
-  };
 
   return (
     <main className="min-h-screen p-4 space-y-4">
@@ -189,8 +199,8 @@ export default function HomePage() {
         />
         <BigButton
           label={s.home.walking}
-          active={activeMode === "vehicle"}
-          onClick={startVehicle}
+          active={activeMode === "walking"}
+          onClick={startWalking}
           testId="btn-walking"
         />
         <BigButton
@@ -206,9 +216,9 @@ export default function HomePage() {
           testId="btn-find-seat"
         />
         <BigButton
-          label={s.home.signsDoors}
-          onClick={() => comingSoon(s.home.signsDoors)}
-          testId="btn-signs-doors"
+          label={s.home.whatsAhead}
+          onClick={startWhatsAhead}
+          testId="btn-whats-ahead"
         />
         <BigButton
           label={s.home.whichWay}

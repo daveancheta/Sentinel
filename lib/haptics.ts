@@ -1,12 +1,14 @@
 import { playEarcon, type EarconType } from "./audio/earcons";
 
-export type HapticPattern = "left" | "right" | "danger" | "confirm";
+export type HapticPattern = "left" | "right" | "danger" | "confirm" | "head" | "step";
 
 const PATTERNS: Record<HapticPattern, number[]> = {
   left: [50],
   right: [50, 100, 50],
   danger: [200, 100, 200],
   confirm: [30],
+  head: [80],
+  step: [180],
 };
 
 export function vibrate(pattern: HapticPattern): void {
@@ -19,6 +21,8 @@ export function vibrate(pattern: HapticPattern): void {
     right: "tick",
     danger: "vehicle",
     confirm: "tick",
+    head: "head",
+    step: "step",
   };
   playEarcon(earconMap[pattern]);
 }

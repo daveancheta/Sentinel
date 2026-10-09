@@ -1,258 +1,351 @@
-# Build Prompt: "Kita" — Offline AI Vision Assistant for Blind & Low-Vision Filipinos (Next.js PWA)
+# Kita: Step-by-Step Build Prompts (Next.js PWA, 100% offline, no cloud database)
 
-You are a senior full-stack engineer specializing in on-device AI, Web APIs, and accessibility. Build **Kita**, a Progressive Web App (PWA) using **Next.js** that runs **all AI locally in the browser** on the user's phone. There is **NO cloud database, NO backend AI API, NO analytics, NO external CDN at runtime**. After the first install + model download, the app must work **100% offline (airplane mode)**.
-
-This is for the AppBuildersPH Hackathon 2026 (theme: Local AI). The pitch: *"Kita sees for you — instantly, privately, even with no signal."*
-
----
-
-## 1. Hard constraints
-
-1. **No cloud.** No Firebase, Supabase, MongoDB Atlas, Vercel KV/Postgres, OpenAI, Google Vision, etc. Next.js is used only to build/serve static assets. No server actions or API routes that process user data.
-2. **All data stays on the device** in **IndexedDB** (use **Dexie.js**). Camera frames, faces, voices and locations are never uploaded.
-3. **Fully offline after setup.** Self-host every model, WASM and font file under `/public`. Do not fetch from Hugging Face, jsDelivr or Google CDNs at runtime.
-   - Transformers.js: `env.allowRemoteModels = false; env.localModelPath = '/models/';` and self-host the onnxruntime-web `.wasm` files.
-   - MediaPipe Tasks Vision: self-host the `wasm/` folder and `.tflite` models.
-4. **Do NOT use the Web Speech API `SpeechRecognition`.** In Chrome it sends audio to Google servers, so it is not offline. Use **Whisper (Transformers.js, `whisper-tiny` or `whisper-base`)** for voice commands.
-5. **The app itself must be fully accessible to blind users.** It must work with TalkBack (Android) and VoiceOver (iOS) and be usable with no vision at all (details in section 6).
-6. **Mobile-first.** The main target is a mid-range Android phone in Chrome. Must also work on iOS Safari 17+, with fallbacks.
-7. All heavy AI runs in **Web Workers** so the UI never freezes. Prefer **WebGPU**, fall back to **WASM**.
+How to use:
+- Paste **one prompt at a time** into your AI coding tool, in order (Step 1 → Step 9).
+- Before going to the next step, make sure the current step's **"Done when"** checklist passes.
+- Every prompt starts with the same **Project rules** block so the AI never forgets the constraints.
 
 ---
 
-## 2. Tech stack
-
-- **Next.js 15 (App Router) + TypeScript + Tailwind CSS**
-- **PWA:** `@serwist/next` (Serwist; next-pwa is unmaintained). Includes a manifest, icons, installability, offline fallback page, and **precache + runtime cache for model files** (Cache Storage).
-- **Storage:** Dexie.js (IndexedDB)
-- **Vision:**
-  - `@mediapipe/tasks-vision`: **ObjectDetector** (EfficientDet-Lite0/2, COCO classes: person, chair, bench, couch, car, motorcycle, bicycle, bus, truck, etc.) and **FaceDetector**
-  - `@vladmandic/human`: **face embeddings (face description)** for recognition, plus **emotion** detection. Self-host its models.
-  - `@huggingface/transformers` (Transformers.js):
-    - **Depth Anything V2 Small** (`onnx-community/depth-anything-v2-small`) for relative depth (head-level obstacles, drop-offs, distances)
-    - **OWL-ViT** (`Xenova/owlvit-base-patch32`) for zero-shot detection of "door", "door handle", "stairs", "curb", "awning", "signboard", "tree branch", "flood water"
-    - **Whisper tiny/base** for offline voice commands (Filipino + English)
-    - **WavLM speaker verification** (`Xenova/wavlm-base-plus-sv`) for voice embeddings / speaker ID
-  - `tesseract.js` with self-hosted `eng` + `fil` traineddata for sign and room-number OCR
-- **Output:**
-  - `speechSynthesis` (Web Speech **TTS** is fine; it is on-device). Prefer a `fil-PH` voice when available, else `en-PH` or `en`. Let the user choose the voice in settings.
-  - **Web Audio API** with **StereoPannerNode** for directional earcons (left/right tones). Works with earphones.
-  - `navigator.vibrate` for haptic patterns. **Note: iOS Safari does not support the Vibration API**, so always pair haptics with an audio earcon.
-- **Sensors:** `getUserMedia` (rear camera, `facingMode: 'environment'`; front camera for Guard mode), `DeviceOrientationEvent` (compass; on iOS call `DeviceOrientationEvent.requestPermission()` and use `webkitCompassHeading`), Geolocation (GPS works offline), Wake Lock API (keep the screen awake during walking modes).
-
----
-
-## 3. Architecture
+## Step 1: Foundation (PWA, database, voice, sounds, accessible screens)
 
 ```
-app/
-  layout.tsx            # lang, PWA meta, global aria-live announcer
-  page.tsx              # Home: giant mode buttons + push-to-talk
-  setup/page.tsx        # First-run: permissions + "Download for offline" with progress
-  people/page.tsx       # Enroll/manage family faces + voices
-  places/page.tsx       # Saved landmarks for orientation
-  settings/page.tsx     # Language, voice, speech rate, verbosity, haptics, battery mode
-  offline/page.tsx      # Offline fallback
-lib/
-  db.ts                 # Dexie schema
-  speech/announcer.ts   # Priority speech queue (see 5.0)
-  audio/earcons.ts      # Stereo-panned tones, sonar beeps
-  haptics.ts            # Vibration patterns (+ audio fallback)
-  camera.ts             # Stream management, frame grabbing at configurable FPS
-  sensors/compass.ts    # Heading, smoothing, iOS permission
-  i18n/{fil,en}.ts      # All spoken + UI strings
-  geometry.ts           # bbox -> left/center/right, distance estimates, "clock face" directions
-workers/
-  detector.worker.ts    # MediaPipe object + face detection
-  faces.worker.ts       # Human: embeddings + emotion
-  depth.worker.ts       # Depth Anything
-  zeroshot.worker.ts    # OWL-ViT
-  ocr.worker.ts         # Tesseract
-  whisper.worker.ts     # Voice commands
-  speaker.worker.ts     # WavLM speaker embeddings
-modes/                  # One module per feature, each a pure "frame -> events" pipeline
-public/models/...       # All self-hosted models
+PROJECT RULES (apply to every step):
+- App: "Kita", a Next.js 15 (App Router) + TypeScript + Tailwind PWA that helps blind and low-vision Filipinos using AI that runs 100% on the phone.
+- No cloud database, no backend AI APIs, no analytics, no runtime CDN. All data goes in IndexedDB (Dexie.js). After the first install + model download, everything must work in airplane mode.
+- Never use the Web Speech API SpeechRecognition (it sends audio to Google). Text-to-speech (speechSynthesis) is fine.
+- Heavy AI runs in Web Workers. Prefer WebGPU, fall back to WASM.
+- Every screen must be fully usable with TalkBack/VoiceOver and no vision: aria-labels, focus order, spoken confirmations.
+- Filipino is the default language, English is optional. All strings go in lib/i18n.
+
+STEP 1: Build ONLY the foundation (no AI yet).
+
+1. Setup
+- Next.js 15 + TypeScript + Tailwind CSS.
+- PWA with @serwist/next: manifest (name "Kita", standalone, portrait, dark theme), icons, installable, offline fallback page at /offline, app shell precached.
+- Dexie database in lib/db.ts:
+  people { id, name, relation, faceEmbeddings, voiceEmbeddings, createdAt }
+  places { id, name, lat, lng, notes }
+  settings { key, value }
+  events { id, type, text, timestamp }
+
+2. Announcer (lib/speech/announcer.ts)
+- Priority speech queue using speechSynthesis. Priorities: DANGER > WARNING > INFO > AMBIENT. DANGER cancels current speech immediately.
+- Skip duplicate messages within a cooldown (default 4 s). Functions: announce(), repeatLast(), stop().
+- Prefer a fil-PH voice, else en-PH, else en. Voice, rate and language are saved in settings.
+- Mirror every spoken message into a global aria-live region.
+
+3. Sounds and vibration
+- lib/audio/earcons.ts: Web Audio API tones with StereoPannerNode (pan -1 left to +1 right): high beep (head-level), low beep (step/drop), urgent siren (vehicle), soft tick (confirm), and a sonar beep whose speed depends on a 0–1 value.
+- lib/haptics.ts: navigator.vibrate patterns (1 short = left, 2 short = right, long = danger). iOS has no Vibration API, so every haptic call must also play the matching earcon.
+
+4. Languages: lib/i18n/fil.ts and en.ts.
+
+5. Screens
+- Home (/): max 6 huge buttons (min 96 px tall, high contrast, big text): Who's Here, Walking, Walk Straight, Find Seat, Signs & Doors, Which Way. Each announces "Coming soon" for now. Plus a big "Hold to talk" button (placeholder) and a "Repeat" button.
+- Settings (/settings): language, voice, speech rate, verbosity (low/normal/high), discreet mode (quiet volume), haptics on/off, a "Learn the sounds" section that plays and explains every earcon, and "Delete all my data" (clears IndexedDB + caches, with confirmation).
+- Shake gesture (DeviceMotion) = repeat the last message.
+
+6. First-run safety message (spoken + shown):
+"Tumutulong si Kita sa iyong tungkod o guide dog, pero hindi nito sila pinapalitan." and "Lahat ng data ay nasa phone mo lang."
+
+DONE WHEN: npm run build passes with no lint/type errors, the app installs as a PWA, works with the network disabled in DevTools, and home + settings are fully usable by screen reader alone.
 ```
 
-**Dexie schema:**
-- `people { id, name, relation, faceEmbeddings: Float32Array[], voiceEmbeddings: Float32Array[], createdAt }`
-- `places { id, name, lat, lng, headingHint, notes }`
-- `settings { key, value }`
-- `events { id, type, text, timestamp }` (local history log, auto-pruned)
+---
 
-Add **Export/Import backup** as a local encrypted JSON file (Web Crypto AES-GCM with a user passphrase) so users can move to a new phone without any cloud.
+## Step 2: Camera pipeline + object detection (Vehicle warning, Empty seat finder)
+
+```
+PROJECT RULES: (same as Step 1) Kita is a Next.js 15 PWA, 100% on-device AI, no cloud, IndexedDB only, works in airplane mode, never use SpeechRecognition, heavy AI in Web Workers, fully screen-reader accessible, Filipino default. Reuse the existing Announcer, earcons, haptics and i18n from Step 1.
+
+STEP 2: Camera + object detection, plus two features.
+
+1. Self-hosted models
+- Create scripts/download-models.mjs that downloads models into /public/models at BUILD time (never at runtime). Start with MediaPipe Tasks Vision: the wasm folder -> /public/mediapipe/wasm and EfficientDet-Lite0 (plus Lite2 as an option) -> /public/models/mediapipe/.
+- Add a Serwist runtime cache rule (CacheFirst) for /models/* and /mediapipe/*.
+
+2. Camera (lib/camera.ts)
+- A single shared getUserMedia stream (rear camera, facingMode "environment", 640x480). It can switch to the front camera.
+- A frame grabber at configurable FPS that sends ImageBitmap to workers (transferable). Pause when the tab is hidden.
+- Wake Lock while any camera mode is active.
+
+3. workers/detector.worker.ts
+- MediaPipe ObjectDetector (COCO), WebGPU/GPU delegate with CPU fallback, score threshold 0.4.
+- Returns { label, score, bbox } in normalized coordinates.
+
+4. lib/geometry.ts
+- bbox center -> "left" / "front" / "right" (thirds) and a pan value -1..1.
+- Rough distance from bbox height ("malapit" near / "mga 2 metro" about 2 m / "malayo" far).
+- A simple tracker (IoU matching across frames) that gives each object an id, its bbox growth rate and its horizontal velocity.
+
+5. Feature: Vehicle warning (modes/vehicle.ts)
+- Classes: car, motorcycle, bicycle, bus, truck (tricycles usually detect as motorcycle).
+- Warn when a tracked vehicle's bbox area grows fast (approaching) OR it enters from a frame edge moving inward.
+- Priority DANGER: siren earcon panned to its side + long haptic + speech: "Motor galing sa kaliwa!" / "Motorcycle coming from the left!"
+- Per-object cooldown so it doesn't repeat every frame.
+
+6. Feature: Empty seat finder (modes/seat.ts)
+- Detect chair, bench and couch boxes plus person boxes. A seat is empty if no person bbox overlaps its upper half. For long benches (jeepney, church pew, waiting area), find gaps between people wider than one person's width.
+- Speak the direction + rough steps: "May bakanteng upuan, dalawang hakbang sa kanan mo."
+- Then sonar mode: the sonar earcon gets faster and is panned toward the seat as it becomes centered and closer. Says "Nasa harap mo na" (it's right in front of you) when centered + near.
+
+7. Wire the Home buttons "Find Seat" and a "Walking" mode (which for now runs vehicle warning only). Add a big Stop button. Every start/stop is spoken.
+
+DONE WHEN: works in airplane mode after first load, detection runs in a worker without freezing the UI, vehicle warning fires on a video of an approaching motorcycle, and the seat finder guides you to an empty chair.
+```
 
 ---
 
-## 4. Features (build all of them)
+## Step 3: Compass (Walk-straight guide, Which way am I facing, Saved places)
 
-Each mode turns camera/mic/sensor input into **events** (`{priority, text, direction, haptic}`) and sends them to the Announcer. Run detectors at a low, configurable FPS (e.g. object detection 4–6 fps, depth 1–2 fps, OCR on demand or 0.5 fps) to save battery.
+```
+PROJECT RULES: (same as Step 1) Kita is a Next.js 15 PWA, 100% on-device AI, no cloud, IndexedDB only, works in airplane mode, never use SpeechRecognition, heavy AI in Web Workers, fully screen-reader accessible, Filipino default. Reuse the Announcer, earcons, haptics, camera, detector worker and geometry from previous steps.
 
-### A. Family Recognition
+STEP 3: Orientation features.
 
-**A1. Enroll people (`/people`)**
-- Guided capture with spoken coaching: "Hold the phone at face height… move a little left… got it." Capture 5–10 face samples per person and average/store the embeddings.
-- Optional voice enrollment: record ~10 s of speech, store the WavLM embedding.
-- Name and relation (Nanay, Tatay, Kuya, Ate, Lola, Friend…), editable and deletable. Fully screen-reader operable.
+1. lib/sensors/compass.ts
+- Heading from DeviceOrientationEvent (deviceorientationabsolute on Android). On iOS, call DeviceOrientationEvent.requestPermission() from a user tap and use webkitCompassHeading.
+- Low-pass filter/smoothing, correct wraparound at 0/360.
+- A spoken "calibrate" tip if readings are unstable ("Igalaw ang phone na parang numero 8", move the phone in a figure 8).
 
-**A2. Who's in the room**
-- Trigger: button, shake, or voice ("Sino ang nandito?" / "Who's here?").
-- Detect all faces, match embeddings (cosine similarity, tunable threshold ~0.6 to start, **calibrate**), map bbox center to **left / front / right** and face size to a rough distance (near / ~2 m / far).
-- Speak one sentence: *"Kuya on your left, Ate in front, about two meters. One person I don't know on your right."*
-- In continuous mode, announce **only changes** ("Nanay just arrived on your right"), with a cooldown per person.
+2. Feature: Walk-straight guide (modes/walkStraight.ts)
+- On start: lock the current heading and say "Diretso. Naka-lock na ang direksyon." (Straight. Direction locked.)
+- If smoothed heading drifts more than ±10° for more than 0.7 s, give a corrective cue toward the locked heading: stereo tone panned to the side to turn + haptic (1 short = turn left, 2 short = turn right).
+- Silent while on course, with one soft tick every 5 s to confirm it is active. The deviation threshold is adjustable in settings.
 
-**A3. Expressions**
-- Use Human's emotion output for recognized people: *"Nanay is smiling."* Only announce when confidence is high and the expression changed. Never claim certainty: "looks happy", "looks upset".
+3. Saved places (/places page)
+- "Save this place" uses the Geolocation API (GPS works offline) and asks for a name via a big accessible input (Home, Sari-sari store, Church, Bus stop…). Stored in the Dexie places table. List, rename and delete, all screen-reader friendly.
 
-**A4. Stranger alert (Guard mode)**
-- Uses the **front camera** (phone worn on a chest lanyard facing back, or placed in a backpack strap) or the rear camera, per user setting.
-- If an **unknown** face/person stays within close range (large bbox) for > N seconds (default 20 s) or keeps reappearing, give a **quiet** alert: a discreet haptic + low-volume earcon + optional whisper "Someone has been close behind you for a while." Never loud; do not alarm others.
+4. Feature: Which way am I facing? (modes/facing.ts)
+- Says the cardinal direction in Filipino/English (hilaga/north, timog/south, silangan/east, kanluran/west, and the in-betweens).
+- If GPS is available, computes the bearing + distance to each saved place and gives the relative direction using clock-face or front/back/left/right: "Ang tindahan ay nasa likod mo, mga 50 metro. Ang bahay ay nasa kaliwa mo." (The store is behind you, about 50 m. Home is on your left.)
+- Optionally runs one object-detection frame and mentions one salient thing in front ("Nakaharap ka sa kalsada, may mga sasakyan." You're facing the road, there are cars.)
 
-**A5. Voice recognition**
-- When the camera can't see anyone, listen in short windows (VAD by energy threshold), compute WavLM embeddings, and match against enrolled voices: *"That sounds like Tatay."*
-- Off by default; a clear toggle with a privacy explanation. Audio is processed in memory and never saved.
+5. Wire the Home buttons "Walk Straight" and "Which Way".
 
-### B. Sidewalk Obstacles (Walking mode)
-
-The phone is worn on a chest lanyard or held at chest height, rear camera forward. Keep a Wake Lock on.
-
-**B1. Head-level warnings** ⭐
-- Use the depth map: if the **upper third** of the frame has a near region (relative depth above threshold, sustained over 2–3 frames) while the lower area is clear, warn: *"Watch your head, ahead."* Plus a distinct **high-pitch** earcon panned to the side where it is.
-- Confirm with OWL-ViT labels (awning, signboard, branch, side mirror) when available to make the message specific.
-
-**B2. Stairs, curbs and drop-offs** ⭐
-- Combine (a) OWL-ViT "stairs"/"curb" detection with (b) a depth discontinuity heuristic in the **lower third** (sudden depth jump = step down or drop-off).
-- Messages: *"Stairs going down ahead," "Curb ahead," "Step up."* Use a distinct **low-pitch** earcon. Highest priority after vehicles.
-- Count visible steps when possible (horizontal edge bands); otherwise don't guess a number.
-
-**B3. Walk-straight guide** ⭐
-- User says "Diretso" / taps "Walk straight". Lock the current compass heading.
-- If heading drifts more than ±10° (smoothed), give a corrective cue: **stereo tone panned to the direction to turn** + haptic pattern (**1 short pulse = turn left, 2 short pulses = turn right**; a phone can't vibrate on one side, so encode direction in the pattern). Silence while on course; one soft tick every few seconds to confirm it's active.
-
-**B4. Vehicle warning**
-- Object detection for car, motorcycle, bicycle, bus, truck (tricycles usually detect as motorcycle). Track bboxes across frames; if a box is **growing quickly** (approaching) or near the frame edge and moving inward, warn: *"Motorcycle coming from the left!"*
-- Optional audio cue: a rising microphone amplitude in the engine frequency band raises confidence. **Top priority**: interrupts all other speech.
-
-**General walking rules:** obstacle density summary on demand ("What's ahead?"), configurable verbosity, and only one message every ~2 s except danger.
-
-### C. Getting Around
-
-**C1. Empty seat finder** ⭐
-- Detect chair/bench/couch and person boxes. A seat is "empty" if no person bbox overlaps its upper area. For long benches (jeep, church pews, waiting areas), detect a gap between people on a bench using person spacing.
-- Output the direction + rough steps: *"Empty seat, two steps to your right."* Then a **sonar mode**: beeps get faster as the seat gets centered and closer.
-
-**C2. Indoor navigation by signs**
-- OCR the frame (on demand + periodic in this mode). Match against a dictionary in **Filipino + English**: CR, Comfort Room, Banyo, Restroom, Male/Female, Lalaki/Babae, Exit, Labasan, Entrance, Pasukan, Elevator, Stairs/Hagdan, Pharmacy, Cashier, Information, Emergency, room numbers (regex `\b[A-Z]?\d{2,4}[A-Z]?\b`), floor numbers, arrows (→ ← ↑).
-- Combine with bbox position: *"CR sign on the left," "Exit straight ahead," "Room 204, second door on your right."*
-- Command: "Hanapin ang CR" / "Find the exit" keeps scanning and guides with directional earcons until found.
-
-**C3. Doors and handles**
-- OWL-ViT: "door", "door handle", "glass door". Report position and handle side: *"Door ahead, handle on the right."*
-- OCR on the door for PUSH/PULL/TULAK/HILA: *"Push to open."*
-- Sonar guidance to bring the hand to the handle.
-
-**C4. Which way am I facing?**
-- Compass heading → cardinal direction in Filipino/English ("You're facing north / hilaga").
-- If GPS is available, compute the bearing to saved **places** (`/places`: "Home", "Sari-sari store", "Church", "Bus stop") and say the relative direction + distance: *"The store is behind you, about 50 meters. Home is to your left."*
-- Optional: run object detection and mention a salient object in front ("You're facing the road; cars ahead").
-
-### D. Core (needed by everything)
-
-**D1. Push-to-talk voice commands (offline Whisper)**
-- One giant button (hold to talk) + a volume-key or shake alternative where possible.
-- Map transcripts to intents with a simple keyword/fuzzy matcher (Filipino, English and Taglish), e.g.:
-  - "sino nandito / who's here" → A2
-  - "lakad / walking mode" → B
-  - "diretso / walk straight" → B3
-  - "hanap upuan / find seat" → C1
-  - "hanapin ang CR / find exit / basahin / read sign" → C2
-  - "pinto / door" → C3
-  - "saan ako nakaharap / which way" → C4
-  - "bantay / guard mode" → A4
-  - "tigil / stop" → stop current mode
-  - "ulitin / repeat" → repeat last message
-
-**D2. Announcer (priority speech queue)**
-- Priorities: `DANGER` (vehicles, drop-offs) > `WARNING` (head-level, stranger) > `INFO` (people, seats, signs) > `AMBIENT`.
-- DANGER cancels current speech immediately (`speechSynthesis.cancel()`). Deduplicate identical messages within a cooldown window. Mirror all speech into an `aria-live` region.
-- Adjustable speech rate, voice, and language (Filipino / English).
-
-**D3. Confidence honesty**
-- If confidence is low, say so: *"I'm not sure. Move closer or hold still."* Never present a guess as fact.
-
-**D4. Battery saver**
-- Lower FPS, disable depth/zero-shot unless the user asks, screen dimmed, and an on-demand-only mode. Speak the battery % on request (Battery Status API where available).
+DONE WHEN: works offline, walk-straight gives the correct left/right cue when you turn the phone, facing mode states the correct direction and relative position of saved places, and it works on Android Chrome and iOS Safari (with the permission tap).
+```
 
 ---
 
-## 5. First-run setup (`/setup`)
+## Step 4: Family recognition (enroll, Who's in the room, Expressions, Stranger alert)
 
-1. Spoken welcome in Filipino, then English.
-2. Request permissions one at a time with spoken explanations (camera, mic, motion/orientation, location).
-3. **"Download for offline"**: fetch all models into Cache Storage with a **spoken + visual progress percentage**. Show the total size before downloading. Let users choose a **Lite** package (no depth/OWL-ViT/WavLM) or a **Full** package.
-4. Self-test: run each model once on a sample image to confirm it works offline, then say "Ready. You can now use Kita without internet."
+```
+PROJECT RULES: (same as Step 1) Kita is a Next.js 15 PWA, 100% on-device AI, no cloud, IndexedDB only, works in airplane mode, never use SpeechRecognition, heavy AI in Web Workers, fully screen-reader accessible, Filipino default. Reuse all existing modules.
 
----
+STEP 4: Face recognition features.
 
-## 6. Accessibility requirements (non-negotiable)
+1. workers/faces.worker.ts using @vladmandic/human
+- Self-host all Human models in /public/models/human (add them to scripts/download-models.mjs). Set modelBasePath to the local path. Enable face detection, face description (embedding) and emotion. Disable everything else.
+- Returns per face: bbox, embedding, emotion + score, detection confidence.
 
-- Every control has a proper `aria-label`, role and focus order. Test the full flow with TalkBack and VoiceOver.
-- Home screen has a maximum of 4–6 **huge** buttons (min 96 px tall), high contrast (WCAG AAA), large text, no information conveyed by color alone.
-- Spoken confirmation for every action ("Walking mode on").
-- Consistent gestures: double-tap = activate, long-press = push-to-talk, shake = repeat last message / quick "who's here".
-- Haptic + audio vocabulary documented in an in-app spoken tutorial ("Learn the sounds").
-- Works in portrait, locked orientation, and with the screen off where the browser allows it (Wake Lock when active).
-- Never auto-play loud sounds; respect a "discreet mode" for public places.
+2. Enrollment (/people page)
+- "Add person": name + relation (Nanay, Tatay, Kuya, Ate, Lola, Lolo, Kaibigan/friend, other).
+- Guided capture with spoken coaching: "Itapat ang phone sa mukha… bahagyang pakaliwa… ayan, nakuha na" (aim at the face… a bit left… got it). Capture 8 good samples (only frames with a single, large, sharp face) and store all embeddings in Dexie.
+- Show a consent reminder: the person being enrolled must agree.
+- List, rename, re-train and delete people, all by screen reader.
 
----
+3. Matching (lib/faces/match.ts)
+- Cosine similarity against all stored embeddings, using the best match per person. Threshold default 0.6, adjustable in settings, plus a "calibration" helper that shows the similarity score live for testing.
 
-## 7. Safety and privacy messaging
+4. Feature: Who's in the room (modes/whosHere.ts)
+- Trigger: Home button "Who's Here", shake (double shake), or later a voice command.
+- Builds one natural sentence sorted left to right using geometry.ts: "Si Kuya sa kaliwa mo, si Ate sa harap, mga dalawang metro. May isang taong hindi ko kilala sa kanan." (Kuya on your left, Ate in front about two meters away, and someone I don't know on the right.)
+- Continuous mode: only announce changes ("Dumating si Nanay sa kanan mo", Nanay just arrived on your right), with a 60 s per-person cooldown.
 
-- On first run and in settings: *"Kita assists your white cane or guide dog. It does not replace them. Always use your judgment, especially when crossing streets."*
-- A privacy screen: "Everything stays on your phone. No account. No internet needed." Provide "Delete all my data" (clears IndexedDB + caches).
-- Face/voice enrollment requires consent from the person being enrolled (show a reminder).
+5. Feature: Expressions
+- For recognized people only, when the emotion score is > 0.7 and it changed: "Mukhang masaya si Nanay" (Nanay looks happy), "Mukhang malungkot si Tatay" (Tatay looks sad). Always say "mukhang" (looks), never claim certainty. It can be turned off in settings.
 
----
+6. Feature: Stranger alert (Guard mode, modes/guard.ts)
+- Setting: which camera to use (front camera when the phone hangs on a chest lanyard facing back / rear camera when in a backpack strap).
+- If an UNKNOWN face stays large (close) in frame for more than 20 s total within 60 s, or keeps reappearing, give a QUIET alert: discreet haptic + low-volume earcon + whisper-level speech "May taong malapit sa likod mo nang matagal na." (Someone has been close behind you for a while.) Never loud.
 
-## 8. Performance targets
-
-- Danger detection latency < 300 ms from frame to earcon on a mid-range Android (WebGPU).
-- UI thread never blocked (> 50 ms tasks forbidden; everything heavy in workers).
-- Reuse a single camera stream and share frames via `ImageBitmap` transfer to workers.
-- Lazy-load models per mode; unload idle ones on low-memory devices.
-
----
-
-## 9. Build order (deliver working increments)
-
-1. Next.js + Tailwind + Serwist PWA skeleton, installable, offline fallback, accessible home screen, Announcer, earcons, haptics, i18n (fil/en).
-2. Camera pipeline + MediaPipe object detection worker + **Vehicle warning** + **Empty seat finder**.
-3. Compass + **Walk-straight guide** + **Which way am I facing** + places.
-4. Human face embeddings + **enrollment** + **Who's in the room** + **Expressions** + **Stranger alert/Guard mode**.
-5. Depth worker + **Head-level warnings** + **Stairs/curbs/drop-offs**.
-6. Tesseract + OWL-ViT + **Indoor navigation by signs** + **Doors and handles**.
-7. Whisper push-to-talk intents + WavLM **voice recognition**.
-8. Setup/model download flow (Lite/Full), backup export/import, battery saver, settings.
-9. Polish: tutorial, latency tuning, threshold calibration screen, airplane-mode end-to-end test.
-
-After each step: run `npm run build`, run lint/typecheck, and verify it works with **network disabled** in DevTools and in real airplane mode on a phone (camera requires HTTPS; use `next dev --experimental-https` or a tunnel for phone testing).
+DONE WHEN: works offline, you can enroll 2 people, "Who's Here" correctly names them with positions, unknown people are reported as unknown, the expression is spoken, and Guard mode alerts after the time threshold.
+```
 
 ---
 
-## 10. Demo script (make sure this works perfectly)
+## Step 5: Depth AI (Head-level warnings, Stairs / curbs / drop-offs)
 
-With the phone in **airplane mode**:
-1. "Sino ang nandito?" → "Kuya on your left, one person I don't know in front."
-2. Walking mode → walk toward a hanging sign → "Watch your head." Approach a step → "Step down ahead."
-3. "Diretso" → drift sideways → corrective pulses bring the user back.
-4. "Hanap upuan" → "Empty seat, two steps to your right."
-5. Point at a "CR →" sign → "CR sign, turn right."
-6. Show settings: "No account. No internet. Your data never leaves this phone."
+```
+PROJECT RULES: (same as Step 1) Kita is a Next.js 15 PWA, 100% on-device AI, no cloud, IndexedDB only, works in airplane mode, never use SpeechRecognition, heavy AI in Web Workers, fully screen-reader accessible, Filipino default. Reuse all existing modules.
+
+STEP 5: Depth-based safety in Walking mode.
+
+1. workers/depth.worker.ts
+- @huggingface/transformers with Depth Anything V2 Small (onnx-community/depth-anything-v2-small), fp16/q8 quantized. Self-host it in /public/models and the onnxruntime-web wasm files in /public. Set env.allowRemoteModels = false and env.localModelPath = '/models/'.
+- device "webgpu" with "wasm" fallback. Input ~256–384 px. Runs at 1–2 fps.
+- Returns a downsampled relative depth grid (e.g. 32x24, normalized 0–1, higher = closer).
+
+2. Feature: Head-level warnings (modes/headLevel.ts)
+- Split the depth grid into upper / middle / lower thirds and left / center / right columns.
+- If the UPPER-center region has a "near" value above threshold (sustained for 2 of the last 3 frames) while the LOWER region in front is not equally near (so it is overhanging, not a wall), warn: "Ingat sa ulo, sa harap!" (Watch your head, ahead!)
+- Priority WARNING, HIGH-pitch earcon panned to the side it is on.
+
+3. Feature: Stairs, curbs and drop-offs (modes/dropoff.ts)
+- In the LOWER third, detect a sudden depth discontinuity along the walking path (rows where depth drops sharply = step down or drop-off; rows that get sharply closer = step up).
+- Count repeated horizontal edge bands to estimate steps ONLY when confident; otherwise don't give a number.
+- Messages: "Pababang hagdan sa harap" (stairs going down ahead), "May gilid ng kalsada sa harap" (curb ahead), "Paakyat na baitang" (step up).
+- Priority DANGER (just below vehicles), LOW-pitch earcon.
+
+4. Walking mode = vehicle warning + head-level + drop-off running together. Rule: max one non-danger message every 2 s; danger always interrupts. Add verbosity support.
+
+5. "What's ahead?" button / command: speaks a one-sentence summary of what is in front ("Maluwag sa harap, may poste sa kanan", clear ahead, a post on the right).
+
+6. Add a debug overlay (hidden behind a setting) showing the depth grid + thresholds so you can tune them. Put all thresholds in settings.
+
+DONE WHEN: works offline, the UI stays smooth (depth runs in a worker), walking toward a hanging sign/branch gives a head warning, standing at the top of stairs or a curb gives a step-down warning, and false alarms are rare on flat ground.
+```
 
 ---
 
-## 11. Deliverables
+## Step 6: OCR + zero-shot detection (Indoor navigation by signs, Doors and handles)
 
-- Complete source code with a clear README (setup, model download script `scripts/download-models.mjs` that fetches models into `/public/models` at **build time**, phone testing over HTTPS, known limitations).
-- A `LIMITATIONS.md` that honestly states accuracy limits (depth is relative, stairs detection is heuristic, the Vibration API is unavailable on iOS, Filipino TTS voice availability depends on the device).
-- No placeholder/mock AI: every listed feature must run on real models on-device.
+```
+PROJECT RULES: (same as Step 1) Kita is a Next.js 15 PWA, 100% on-device AI, no cloud, IndexedDB only, works in airplane mode, never use SpeechRecognition, heavy AI in Web Workers, fully screen-reader accessible, Filipino default. Reuse all existing modules.
+
+STEP 6: Signs and doors.
+
+1. workers/ocr.worker.ts
+- tesseract.js with self-hosted worker, core and traineddata (eng + fil) in /public/tesseract. No CDN paths. Returns words with bboxes + confidence.
+- Preprocess: grayscale + contrast boost, and crop to likely text regions to speed it up.
+
+2. workers/zeroshot.worker.ts
+- Transformers.js zero-shot object detection with Xenova/owlvit-base-patch32 (quantized, self-hosted). Labels: "door", "door handle", "glass door", "stairs", "elevator", "sign". WebGPU with wasm fallback. On demand / ~0.5 fps.
+- (Optional upgrade: also use these labels to improve Step 5's stairs detection.)
+
+3. Feature: Indoor navigation by signs (modes/signs.ts)
+- OCR dictionary in Filipino + English: CR, Comfort Room, Banyo, Restroom, Toilet, Male/Lalaki, Female/Babae, Exit, Labasan, Entrance, Pasukan, Elevator, Stairs/Hagdan, Pharmacy/Botika, Cashier/Kahera, Information, Emergency, Billing, plus room numbers (regex \b[A-Z]?\d{2,4}[A-Z]?\b), floor numbers and arrow characters (→ ← ↑).
+- Fuzzy matching (OCR is noisy). Combine with bbox position: "May karatulang CR sa kaliwa" (CR sign on the left), "Exit, diretso sa harap" (exit straight ahead), "Room 204, sa kanan" (room 204, on the right).
+- Search mode: "Hanapin ang CR" (find the CR) keeps scanning and uses sonar + panning until the target is found and centered.
+- "Read everything" button: reads all text it sees, top to bottom.
+
+4. Feature: Doors and handles (modes/doors.ts)
+- OWL-ViT for door + handle. Report the door position and which side the handle is on: "May pinto sa harap, ang hawakan ay nasa kanan." (Door ahead, handle on the right.)
+- OCR on the door for PUSH/PULL/TULAK/HILA: "Itulak para bumukas" (push to open) / "Hilahin" (pull).
+- Sonar guidance toward the handle until it is centered and close.
+
+5. Wire the Home button "Signs & Doors" with sub-options: Find CR, Find Exit, Find Room (number input/voice), Find Door, Read All.
+
+DONE WHEN: works offline, it finds and announces a printed "CR →" sign and a room number, guides to a door, tells the handle side, and reads PUSH/PULL text.
+```
+
+---
+
+## Step 7: Offline voice (Push-to-talk commands with Whisper, Voice recognition)
+
+```
+PROJECT RULES: (same as Step 1) Kita is a Next.js 15 PWA, 100% on-device AI, no cloud, IndexedDB only, works in airplane mode, NEVER use SpeechRecognition, heavy AI in Web Workers, fully screen-reader accessible, Filipino default. Reuse all existing modules.
+
+STEP 7: Voice.
+
+1. workers/whisper.worker.ts
+- Transformers.js automatic-speech-recognition with Whisper (onnx-community/whisper-base or Xenova/whisper-tiny for low-end phones; selectable). Self-hosted and quantized, WebGPU with wasm fallback.
+- Record 16 kHz mono with getUserMedia + AudioWorklet (or MediaRecorder + decode). Language auto or "tl" (Tagalog), with English supported.
+
+2. Push-to-talk
+- Make the "Hold to talk" button real: hold = record (soft tick at start and end), release = transcribe. Also support a toggle mode for users who can't hold.
+- Speak back what it understood if confidence is low: "Ang narinig ko: 'hanap upuan'. Tama ba?" (I heard "find seat". Is that right?)
+
+3. Intent matcher (lib/voice/intents.ts)
+- Keyword + fuzzy matching for Filipino, English and Taglish:
+  "sino nandito / sino ang nandito / who's here" -> Who's Here
+  "lakad / walking mode / maglalakad" -> Walking mode
+  "diretso / walk straight" -> Walk Straight
+  "hanap upuan / upuan / find seat" -> Find Seat
+  "hanapin ang CR / CR / banyo" -> Signs: find CR
+  "labasan / exit" -> Signs: find exit
+  "kwarto <number> / room <number>" -> Signs: find room
+  "pinto / door" -> Doors
+  "basahin / read" -> Read all
+  "saan ako nakaharap / which way" -> Which Way
+  "ano ang nasa harap / what's ahead" -> What's ahead
+  "bantay / guard mode" -> Guard mode
+  "tigil / stop" -> stop current mode
+  "ulitin / repeat" -> repeat last message
+- Unknown command: say "Hindi ko naintindihan" (I didn't understand) + a short list of examples.
+
+4. workers/speaker.worker.ts: Voice recognition
+- Transformers.js with Xenova/wavlm-base-plus-sv (self-hosted) to get speaker embeddings.
+- On the /people page: optional "Record voice" (~10 s, guided) that stores the voice embeddings.
+- Feature: when ON (off by default, with a privacy explanation), listen in short windows using an energy-based VAD, compute the embedding, and match by cosine similarity: "Parang boses ni Tatay" (sounds like Tatay). Audio stays in memory and is never saved. Cooldown per person.
+- Merge with Who's Here: if a known voice is heard but no face is seen, add "Narinig ko rin si Tatay" (I also heard Tatay).
+
+DONE WHEN: works in airplane mode, every intent above triggers the right mode from speech (Filipino and English), no network requests happen during voice use (check the DevTools Network tab), and an enrolled voice is recognized.
+```
+
+---
+
+## Step 8: First-run setup, offline model download, backup, battery saver
+
+```
+PROJECT RULES: (same as Step 1) Kita is a Next.js 15 PWA, 100% on-device AI, no cloud, IndexedDB only, works in airplane mode, never use SpeechRecognition, heavy AI in Web Workers, fully screen-reader accessible, Filipino default. Reuse all existing modules.
+
+STEP 8: Make it ready for real users.
+
+1. First-run setup (/setup), shown automatically on first launch
+- Spoken welcome in Filipino (English option).
+- Permissions one at a time with spoken explanations: camera, microphone, motion/orientation (iOS tap), location.
+- "I-download para offline" (download for offline): choose a package and state its total size first:
+  LITE = MediaPipe + Human + Tesseract + Whisper tiny
+  FULL = LITE + Depth Anything + OWL-ViT + Whisper base + WavLM
+- Download all files into Cache Storage with spoken + visual progress ("40 porsyento"), resumable if interrupted.
+- Self-test: run each model once on a bundled sample image/audio, then say "Handa na. Magagamit mo na si Kita kahit walang internet." (Ready. You can use Kita even without internet.)
+- Features that need FULL models are hidden or say "I-download muna ang Full package" (download the Full package first).
+
+2. Storage health
+- Request navigator.storage.persist() so models aren't evicted, and show storage used. Add a "Re-download models" button.
+
+3. Backup without cloud
+- Export: all people (embeddings), places and settings into one file encrypted with Web Crypto AES-GCM (PBKDF2 from a user passphrase). Download it as a .kita file.
+- Import: pick the file, enter the passphrase, merge or replace. Fully screen-reader accessible.
+
+4. Battery saver mode
+- Lower FPS for all workers, disable depth/zero-shot unless explicitly requested, on-demand-only mode (camera off until a button/command), no continuous voice ID.
+- "Ilang porsyento ang baterya?" (what's the battery %?) answers via the Battery Status API where supported.
+
+5. Model lifecycle: lazy-load models per mode, unload idle models after 2 minutes on low-memory devices (navigator.deviceMemory <= 4).
+
+DONE WHEN: a fresh install goes through setup by screen reader only, then the full app works in real airplane mode on a phone after a restart; backup export → delete all data → import restores people and places.
+```
+
+---
+
+## Step 9: Polish, tutorial, testing, docs, demo
+
+```
+PROJECT RULES: (same as Step 1) Kita is a Next.js 15 PWA, 100% on-device AI, no cloud, IndexedDB only, works in airplane mode, never use SpeechRecognition, heavy AI in Web Workers, fully screen-reader accessible, Filipino default.
+
+STEP 9: Polish and ship.
+
+1. Tutorial ("Paano gamitin", how to use): a spoken, step-by-step walkthrough of the gestures, the sound/vibration meanings and each mode. Replayable from settings.
+
+2. Quality pass
+- Announcer: tune cooldowns so walking mode never talks over itself. Danger always first. Add "quiet mode" where only DANGER/WARNING are spoken and everything else is earcons.
+- Confidence honesty everywhere: when a model is unsure, say "Hindi ako sigurado, lumapit o huminto sandali" (I'm not sure, move closer or hold still).
+- Performance: confirm no main-thread task > 50 ms (Chrome Performance panel), reuse one camera stream, transfer ImageBitmaps, cap the worker queue (drop old frames).
+- Accessibility audit: test every screen with TalkBack and VoiceOver, keyboard focus, color contrast AAA, large text 200%.
+
+3. Testing
+- Unit tests (Vitest) for geometry, intent matcher, face matching, compass math, announcer priority/cooldown.
+- A Playwright test that loads the app, goes offline, reloads, and confirms the app shell + settings work.
+- A manual airplane-mode checklist in TESTING.md.
+
+4. Docs
+- README.md: what Kita is, features, how to run (npm install → node scripts/download-models.mjs → npm run dev), how to test on a phone over HTTPS (next dev --experimental-https or a tunnel), how to deploy as static hosting.
+- LIMITATIONS.md (be honest): depth is relative, stairs/head-level are heuristic, iOS has no Vibration API (audio cues used instead), Filipino TTS voice depends on the device, accuracy drops at night/low light, Kita assists and doesn't replace the cane or guide dog.
+- PRIVACY.md: no account, no server, all data on the phone, how to delete it.
+
+5. Demo mode
+- A "Demo" toggle that makes all speech also appear in large captions on screen (so judges can follow), and a demo checklist:
+  1) Airplane mode ON
+  2) "Sino ang nandito?" → names + positions
+  3) Walking mode → head-level + step-down warnings
+  4) "Diretso" → corrective cues
+  5) "Hanap upuan" → guides to the empty seat
+  6) "Hanapin ang CR" → finds the sign
+  7) Settings → "Walang account, walang internet."
+
+DONE WHEN: all tests pass, npm run build is clean, Lighthouse PWA is installable, the accessibility audit has no critical issues, and the full demo runs in airplane mode with no network requests.
+```

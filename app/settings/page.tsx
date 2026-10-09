@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   initAnnouncer,
@@ -20,6 +20,7 @@ import { calibrationScores } from "../../lib/faces/match";
 import { db } from "../../lib/db";
 import { startCamera, stopCamera } from "../../lib/camera";
 import { initFaces, setFacesCallback, sendFacesFrame, stopFaces } from "../../lib/faces-bridge";
+import { initDepth, sendDepthFrame, setDepthCallback, stopDepth } from "../../lib/depth-bridge";
 
 export default function SettingsPage() {
   const [lang, setLang] = useState<Language>("fil");
@@ -34,6 +35,18 @@ export default function SettingsPage() {
   const [expressions, setExpressions] = useState<boolean>(true);
   const [guardCamera, setGuardCamera] = useState<"user" | "environment">("user");
   const [guardActive, setGuardActive] = useState<boolean>(false);
+  const [headThreshold, setHeadThreshold] = useState<number>(0.65);
+  const [headLowerMax, setHeadLowerMax] = useState<number>(0.35);
+  const [stepThreshold, setStepThreshold] = useState<number>(0.25);
+  const [stepMinRows, setStepMinRows] = useState<number>(3);
+  const [clearThreshold, setClearThreshold] = useState<number>(0.3);
+  const [nearThreshold, setNearThreshold] = useState<number>(0.55);
+  const [depthDebug, setDepthDebug] = useState<boolean>(false);
+  const [debugActive, setDebugActive] = useState<boolean>(false);
+  const [debugGrid, setDebugGrid] = useState<Float32Array | null>(null);
+  const [debugDims, setDebugDims] = useState<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
+  const [debugInfo, setDebugInfo] = useState<string>("");
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [calibActive, setCalibActive] = useState<boolean>(false);
   const [calibText, setCalibText] = useState<string>("");
   const [showDelete, setShowDelete] = useState(false);
@@ -54,6 +67,13 @@ export default function SettingsPage() {
       setFaceThreshold(await getSetting<number>("faceThreshold", 0.6));
       setExpressions(await getSetting<boolean>("expressionsEnabled", true));
       setGuardCamera(await getSetting<"user" | "environment">("guardCamera", "user"));
+      setHeadThreshold(await getSetting<number>("headThreshold", 0.65));
+      setHeadLowerMax(await getSetting<number>("headLowerMax", 0.35));
+      setStepThreshold(await getSetting<number>("stepThreshold", 0.25));
+      setStepMinRows(await getSetting<number>("stepMinRows", 3));
+      setClearThreshold(await getSetting<number>("clearThreshold", 0.3));
+      setNearThreshold(await getSetting<number>("nearThreshold", 0.55));
+      setDepthDebug(await getSetting<boolean>("depthDebug", false));
       const uri = await getSetting<string | null>("voiceUri", null);
       setSelectedVoice(uri ?? "");
       if ("speechSynthesis" in window) {
@@ -135,6 +155,62 @@ export default function SettingsPage() {
       });
     } catch {
       stopCalibration();
+    }
+  };
+
+  useEffect(() => {
+    if (!debugGrid || !canvasRef.current || debugDims.cols === 0 || debugDims.rows === 0) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { cols, rows } = debugDims;
+    const cellW = canvas.width / cols;
+    const cellH = canvas.height / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v = debugGrid[r * cols + c];
+        const hue = 240 - v * 240;
+        ctx.fillStyle = `hsl(${hue}, 90%, 50%)`;
+        ctx.fillRect(c * cellW, r * cellH, cellW, cellH);
+      }
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = 1;
+    const rowThird = Math.floor(rows / 3);
+    const colThird = Math.floor(cols / 3);
+    ctx.beginPath();
+    ctx.moveTo(0, rowThird * cellH);
+    ctx.lineTo(canvas.width, rowThird * cellH);
+    ctx.moveTo(0, rowThird * 2 * cellH);
+    ctx.lineTo(canvas.width, rowThird * 2 * cellH);
+    ctx.moveTo(colThird * cellW, 0);
+    ctx.lineTo(colThird * cellW, canvas.height);
+    ctx.moveTo(colThird * 2 * cellW, 0);
+    ctx.lineTo(colThird * 2 * cellW, canvas.height);
+    ctx.stroke();
+  }, [debugGrid, debugDims]);
+
+  const toggleDebug = async () => {
+    if (debugActive) {
+      setDebugActive(false);
+      setDepthCallback(null);
+      stopDepth();
+      stopCamera();
+    } else {
+      setDebugActive(true);
+      try {
+        await initDepth();
+        setDepthCallback((frame) => {
+          setDebugGrid(frame.grid);
+          setDebugDims({ cols: frame.cols, rows: frame.rows });
+          setDebugInfo(`${s.settings.headThreshold}: ${headThreshold.toFixed(2)} · ${s.settings.headLowerMax}: ${headLowerMax.toFixed(2)} · ${s.settings.stepThreshold}: ${stepThreshold.toFixed(2)} · ${s.settings.clearThreshold}: ${clearThreshold.toFixed(2)}`);
+        });
+        await startCamera({ fps: 6, facingMode: "environment" }, (frame) => {
+          sendDepthFrame(frame.bitmap, frame.timestamp);
+        });
+      } catch {
+        setDebugActive(false);
+      }
     }
   };
 
@@ -294,6 +370,120 @@ export default function SettingsPage() {
         </p>
       </section>
 
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="head-threshold-label">
+        <h2 id="head-threshold-label" className="text-xl font-bold">{s.settings.headThreshold}</h2>
+        <input
+          type="range"
+          min="0.2"
+          max="0.9"
+          step="0.05"
+          value={headThreshold}
+          onChange={async (e) => {
+            const v = Number(e.target.value);
+            setHeadThreshold(v);
+            await setSetting("headThreshold", v);
+          }}
+          className="w-full accent-kita-accent"
+          aria-valuetext={`${headThreshold.toFixed(2)}`}
+        />
+        <p className="text-lg text-kita-muted" aria-hidden="true">{headThreshold.toFixed(2)}</p>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="head-lower-label">
+        <h2 id="head-lower-label" className="text-xl font-bold">{s.settings.headLowerMax}</h2>
+        <input
+          type="range"
+          min="0.1"
+          max="0.8"
+          step="0.05"
+          value={headLowerMax}
+          onChange={async (e) => {
+            const v = Number(e.target.value);
+            setHeadLowerMax(v);
+            await setSetting("headLowerMax", v);
+          }}
+          className="w-full accent-kita-accent"
+          aria-valuetext={`${headLowerMax.toFixed(2)}`}
+        />
+        <p className="text-lg text-kita-muted" aria-hidden="true">{headLowerMax.toFixed(2)}</p>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="step-threshold-label">
+        <h2 id="step-threshold-label" className="text-xl font-bold">{s.settings.stepThreshold}</h2>
+        <input
+          type="range"
+          min="0.05"
+          max="0.6"
+          step="0.05"
+          value={stepThreshold}
+          onChange={async (e) => {
+            const v = Number(e.target.value);
+            setStepThreshold(v);
+            await setSetting("stepThreshold", v);
+          }}
+          className="w-full accent-kita-accent"
+          aria-valuetext={`${stepThreshold.toFixed(2)}`}
+        />
+        <p className="text-lg text-kita-muted" aria-hidden="true">{stepThreshold.toFixed(2)}</p>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="step-min-label">
+        <h2 id="step-min-label" className="text-xl font-bold">{s.settings.stepMinRows}</h2>
+        <input
+          type="range"
+          min="1"
+          max="8"
+          step="1"
+          value={stepMinRows}
+          onChange={async (e) => {
+            const v = Number(e.target.value);
+            setStepMinRows(v);
+            await setSetting("stepMinRows", v);
+          }}
+          className="w-full accent-kita-accent"
+          aria-valuetext={`${stepMinRows}`}
+        />
+        <p className="text-lg text-kita-muted" aria-hidden="true">{stepMinRows}</p>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="clear-threshold-label">
+        <h2 id="clear-threshold-label" className="text-xl font-bold">{s.settings.clearThreshold}</h2>
+        <input
+          type="range"
+          min="0.05"
+          max="0.6"
+          step="0.05"
+          value={clearThreshold}
+          onChange={async (e) => {
+            const v = Number(e.target.value);
+            setClearThreshold(v);
+            await setSetting("clearThreshold", v);
+          }}
+          className="w-full accent-kita-accent"
+          aria-valuetext={`${clearThreshold.toFixed(2)}`}
+        />
+        <p className="text-lg text-kita-muted" aria-hidden="true">{clearThreshold.toFixed(2)}</p>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="near-threshold-label">
+        <h2 id="near-threshold-label" className="text-xl font-bold">{s.settings.nearThreshold}</h2>
+        <input
+          type="range"
+          min="0.2"
+          max="0.9"
+          step="0.05"
+          value={nearThreshold}
+          onChange={async (e) => {
+            const v = Number(e.target.value);
+            setNearThreshold(v);
+            await setSetting("nearThreshold", v);
+          }}
+          className="w-full accent-kita-accent"
+          aria-valuetext={`${nearThreshold.toFixed(2)}`}
+        />
+        <p className="text-lg text-kita-muted" aria-hidden="true">{nearThreshold.toFixed(2)}</p>
+      </section>
+
       <section className="bg-kita-panel rounded-2xl p-4 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold">{s.settings.expressionsEnabled}</h2>
@@ -311,6 +501,50 @@ export default function SettingsPage() {
           </button>
         </div>
       </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold">{s.settings.depthDebug}</h2>
+          <button
+            type="button"
+            onClick={async () => {
+              const v = !depthDebug;
+              setDepthDebug(v);
+              await setSetting("depthDebug", v);
+            }}
+            className={`w-16 h-10 rounded-full p-1 transition-colors ${depthDebug ? "bg-kita-accent" : "bg-kita-muted"}`}
+            aria-pressed={depthDebug}
+          >
+            <span className={`block w-8 h-8 rounded-full bg-white transition-transform ${depthDebug ? "translate-x-6" : "translate-x-0"}`} />
+          </button>
+        </div>
+      </section>
+
+      {depthDebug && (
+        <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="depth-debug-label">
+          <h2 id="depth-debug-label" className="text-xl font-bold">{s.settings.depthDebug}</h2>
+          <button
+            type="button"
+            onClick={toggleDebug}
+            className={`w-full min-h-[64px] rounded-xl font-bold border-2 ${debugActive ? "bg-kita-danger text-white border-kita-danger" : "bg-kita-accent text-kita-bg border-kita-accent"}`}
+            aria-pressed={debugActive}
+          >
+            {debugActive ? s.settings.hideDebug : s.settings.showDebug}
+          </button>
+          {debugActive && (
+            <>
+              <canvas
+                ref={canvasRef}
+                width={320}
+                height={240}
+                className="w-full rounded-xl bg-kita-bg"
+                aria-label="Depth grid overlay"
+              />
+              <p className="text-lg text-kita-text" aria-live="polite">{debugInfo}</p>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="guard-label">
         <h2 id="guard-label" className="text-xl font-bold">{s.settings.guardCamera}</h2>
