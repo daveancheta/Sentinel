@@ -9,6 +9,7 @@ import { vibrate } from "../../lib/haptics";
 import { startCamera, stopCamera } from "../../lib/camera";
 import { initFaces, setFacesCallback, sendFacesFrame, stopFaces } from "../../lib/faces-bridge";
 import { cosineSimilarity } from "../../lib/faces/match";
+import { makeVoiceEmbedding, recordVoiceSample } from "../../lib/voice/speaker";
 
 const RELATIONS = [
   "nanay",
@@ -31,6 +32,7 @@ export default function PeoplePage() {
   const [samples, setSamples] = useState<Float32Array[]>([]);
   const [status, setStatus] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [voiceRecordingId, setVoiceRecordingId] = useState<number | null>(null);
   const capturingRef = useRef(false);
   const samplesRef = useRef<Float32Array[]>([]);
   const s = getStrings(lang);
@@ -160,6 +162,21 @@ export default function PeoplePage() {
     announce(s.people.deleted.replace("{name}", p.name), "INFO");
   };
 
+  const recordVoice = async (p: Person) => {
+    if (!p.id || voiceRecordingId !== null) return;
+    setVoiceRecordingId(p.id);
+    announce(lang === "fil" ? "Magsalita nang natural sa loob ng sampung segundo." : "Speak naturally for ten seconds.", "INFO");
+    try {
+      const audio = await recordVoiceSample(10);
+      const embedding = await makeVoiceEmbedding(audio);
+      await db.people.update(p.id, { voiceEmbeddings: [...(p.voiceEmbeddings ?? []), embedding] });
+      await loadPeople();
+      announce(lang === "fil" ? `Naka-save ang sample ng boses ni ${p.name}.` : `Voice sample saved for ${p.name}.`, "INFO");
+    } catch (error) {
+      announce(`${lang === "fil" ? "Hindi maitala ang boses." : "Could not record voice."} ${error instanceof Error ? error.message : String(error)}`, "WARNING");
+    } finally { setVoiceRecordingId(null); }
+  };
+
   return (
     <main className="min-h-screen p-4 space-y-6">
       <header className="flex items-center justify-between">
@@ -225,6 +242,9 @@ export default function PeoplePage() {
                         {s.people.delete}
                       </button>
                     </div>
+                    <button type="button" disabled={voiceRecordingId !== null} onClick={() => void recordVoice(p)} className="w-full min-h-[56px] rounded-xl border-2 border-kita-accent font-bold disabled:opacity-50">
+                      {voiceRecordingId === p.id ? (lang === "fil" ? "Kinukuha ang boses…" : "Recording voice…") : (lang === "fil" ? `Itala ang boses (${p.voiceEmbeddings?.length ?? 0} sample)` : `Record voice (${p.voiceEmbeddings?.length ?? 0} samples)`)}
+                    </button>
                   </li>
                 ))}
               </ul>

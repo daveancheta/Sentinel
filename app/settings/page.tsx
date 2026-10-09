@@ -21,6 +21,7 @@ import { db } from "../../lib/db";
 import { startCamera, stopCamera } from "../../lib/camera";
 import { initFaces, setFacesCallback, sendFacesFrame, stopFaces } from "../../lib/faces-bridge";
 import { initDepth, sendDepthFrame, setDepthCallback, stopDepth } from "../../lib/depth-bridge";
+import type { WhisperModel, VoiceLanguage } from "../../lib/voice/transcriber";
 
 export default function SettingsPage() {
   const [lang, setLang] = useState<Language>("fil");
@@ -50,6 +51,9 @@ export default function SettingsPage() {
   const [calibActive, setCalibActive] = useState<boolean>(false);
   const [calibText, setCalibText] = useState<string>("");
   const [showDelete, setShowDelete] = useState(false);
+  const [whisperModel, setWhisperModel] = useState<WhisperModel>("onnx-community/whisper-tiny");
+  const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>("auto");
+  const [voiceIdEnabled, setVoiceIdEnabled] = useState(false);
 
   const s = getStrings(lang);
 
@@ -74,6 +78,9 @@ export default function SettingsPage() {
       setClearThreshold(await getSetting<number>("clearThreshold", 0.3));
       setNearThreshold(await getSetting<number>("nearThreshold", 0.55));
       setDepthDebug(await getSetting<boolean>("depthDebug", false));
+      setWhisperModel(await getSetting<WhisperModel>("whisperModel", "onnx-community/whisper-tiny"));
+      setVoiceLanguage(await getSetting<VoiceLanguage>("voiceLanguage", "auto"));
+      setVoiceIdEnabled(await getSetting<boolean>("voiceIdEnabled", false));
       const uri = await getSetting<string | null>("voiceUri", null);
       setSelectedVoice(uri ?? "");
       if ("speechSynthesis" in window) {
@@ -602,6 +609,24 @@ export default function SettingsPage() {
         </button>
         <div aria-live="polite" aria-atomic="true" className="text-lg text-kita-text">
           {calibText}
+        </div>
+      </section>
+
+      <section className="bg-kita-panel rounded-2xl p-4 space-y-4" aria-labelledby="voice-label">
+        <h2 id="voice-label" className="text-xl font-bold">{lang === "fil" ? "Boses at utos" : "Voice and commands"}</h2>
+        <p className="text-base text-kita-muted">{lang === "fil" ? "Pinoproseso sa phone ang audio. Hindi ito ipinapadala o sine-save." : "Audio is processed on this phone. It is not uploaded or saved."}</p>
+        <label htmlFor="whisper-model" className="block text-lg font-bold">{lang === "fil" ? "Modelo ng pagkilala" : "Recognition model"}</label>
+        <select id="whisper-model" value={whisperModel} onChange={async (event) => { const value = event.target.value as WhisperModel; setWhisperModel(value); await setSetting("whisperModel", value); }} className="w-full min-h-14 rounded-xl border border-kita-muted bg-kita-bg px-4 text-lg">
+          <option value="onnx-community/whisper-tiny">Whisper tiny (mas magaan / smaller)</option>
+          <option value="onnx-community/whisper-base">Whisper base (mas tumpak / more accurate)</option>
+        </select>
+        <label htmlFor="voice-language" className="block text-lg font-bold">{lang === "fil" ? "Wika ng utos" : "Command language"}</label>
+        <select id="voice-language" value={voiceLanguage} onChange={async (event) => { const value = event.target.value as VoiceLanguage; setVoiceLanguage(value); await setSetting("voiceLanguage", value); }} className="w-full min-h-14 rounded-xl border border-kita-muted bg-kita-bg px-4 text-lg">
+          <option value="auto">{lang === "fil" ? "Awtomatiko" : "Automatic"}</option><option value="fil">Filipino / Tagalog</option><option value="en">English</option>
+        </select>
+        <div className="flex items-center justify-between gap-4">
+          <div><h3 className="text-lg font-bold">{lang === "fil" ? "Kilalanin ang boses" : "Recognize voices"}</h3><p className="text-sm text-kita-muted">{lang === "fil" ? "Opsyonal at patay bilang default. Nakikinig sa maiikling audio window; nasa memorya lang ang audio." : "Optional and off by default. Listens in short audio windows; audio stays in memory."}</p></div>
+          <button type="button" onClick={async () => { const value = !voiceIdEnabled; setVoiceIdEnabled(value); await setSetting("voiceIdEnabled", value); announce(value ? (lang === "fil" ? "Nakabukas ang pagkilala sa boses." : "Voice recognition enabled.") : (lang === "fil" ? "Nakasara ang pagkilala sa boses." : "Voice recognition disabled."), "INFO"); }} aria-pressed={voiceIdEnabled} className={`w-16 h-10 shrink-0 rounded-full p-1 ${voiceIdEnabled ? "bg-kita-accent" : "bg-kita-muted"}`}><span className={`block h-8 w-8 rounded-full bg-white ${voiceIdEnabled ? "translate-x-6" : ""}`} /></button>
         </div>
       </section>
 

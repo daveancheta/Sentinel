@@ -29,6 +29,14 @@ const modelCache = [
       plugins: [new ExpirationPlugin({ maxEntries: 30, maxAgeSeconds: 365 * 24 * 60 * 60 })],
     }),
   },
+  {
+    matcher: ({ sameOrigin, url: { pathname } }: { sameOrigin: boolean; url: { pathname: string } }) =>
+      sameOrigin && pathname.startsWith("/tesseract/"),
+    handler: new CacheFirst({
+      cacheName: "kita-tesseract",
+      plugins: [new ExpirationPlugin({ maxEntries: 20, maxAgeSeconds: 365 * 24 * 60 * 60 })],
+    }),
+  },
 ];
 
 const serwist = new Serwist({
